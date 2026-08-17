@@ -1,19 +1,23 @@
-﻿from telegram import Update
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import os
+import asyncio
 
-# کانال‌هایی که باید عضو باشن
+# ==================== تنظیمات ====================
+OWNER_ID = 8898410167          # آی‌دی عددی تو
+DELETE_AFTER = 90              # چند ثانیه بعد فایل پاک بشه (می‌تونی عوض کنی)
+
 REQUIRED_CHANNELS = [
     "@comic_goddess",
 ]
 
-# فایل‌ها (فعلاً خالی می‌ذاریم، بعداً file_id اضافه می‌کنیم)
 FILES = {
     "test1": {
         "file_id": "BQACAgQAAxkBAAMFaoN0THEQTP61sIo3txzCez1gCxIAAkUdAALjMiBQblG95Vpfsh89BA",
         "caption": "فایل تست"
     },
 }
+# ================================================
 
 async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     for channel in REQUIRED_CHANNELS:
@@ -49,15 +53,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        await update.message.reply_document(
+        # ارسال فایل
+        sent_file = await update.message.reply_document(
             document=file_info["file_id"],
             caption=file_info.get("caption", "")
         )
+
+        # پیام هشدار
+        warning = await update.message.reply_text(
+            f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
+            "لطفاً آن را به Saved Messages یا جای دیگری فوروارد کنید."
+        )
+
+        # صبر کردن و بعد پاک کردن
+        await asyncio.sleep(DELETE_AFTER)
+        try:
+            await sent_file.delete()
+            await warning.delete()
+        except:
+            pass  # اگر نتونست پاک کنه، خطا نده
+
     except Exception:
         await update.message.reply_text("❌ خطا در ارسال فایل.")
 
-# این قسمت برای گرفتن file_id هست (فقط خودت استفاده می‌کنی)
+# فقط مالک ربات می‌تونه file_id بگیره
 async def get_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return  # به بقیه هیچی نشون نده
+
     if update.message.document:
         file_id = update.message.document.file_id
         await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
@@ -79,12 +102,7 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(
-        MessageHandler(
-            filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO,
-            get_file_id
-        )
-    )
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, get_file_id))
     print("ربات روشن شد...")
     app.run_polling()
 
