@@ -2,22 +2,25 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import os
 import asyncio
+import random
+import string
 
 # ==================== تنظیمات ====================
-OWNER_ID = 8898410167          # آی‌دی عددی تو
-DELETE_AFTER = 90              # چند ثانیه بعد فایل پاک بشه (می‌تونی عوض کنی)
+OWNER_ID = 8898410167
+DELETE_AFTER = 90                  # ثانیه
 
 REQUIRED_CHANNELS = [
     "@comic_goddess",
 ]
 
-FILES = {
-    "test1": {
-        "file_id": "BQACAgQAAxkBAAMFaoN0THEQTP61sIo3txzCez1gCxIAAkUdAALjMiBQblG95Vpfsh89BA",
-        "caption": "فایل تست"
-    },
-}
+# اینجا فایل‌ها ذخیره می‌شن (تا وقتی ربات ری‌استارت نشه)
+FILES = {}
 # ================================================
+
+def generate_key(length=6):
+    """یک کد تصادفی می‌سازه"""
+    chars = string.ascii_lowercase + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
 
 async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     for channel in REQUIRED_CHANNELS:
@@ -49,50 +52,69 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file_info = FILES.get(file_key)
     if not file_info:
-        await update.message.reply_text("❌ این لینک معتبر نیست.")
+        await update.message.reply_text("❌ این لینک معتبر نیست یا منقضی شده.")
         return
 
     try:
-        # ارسال فایل
         sent_file = await update.message.reply_document(
             document=file_info["file_id"],
             caption=file_info.get("caption", "")
         )
 
-        # پیام هشدار
         warning = await update.message.reply_text(
             f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
             "لطفاً آن را به Saved Messages یا جای دیگری فوروارد کنید."
         )
 
-        # صبر کردن و بعد پاک کردن
         await asyncio.sleep(DELETE_AFTER)
         try:
             await sent_file.delete()
             await warning.delete()
         except:
-            pass  # اگر نتونست پاک کنه، خطا نده
+            pass
 
     except Exception:
         await update.message.reply_text("❌ خطا در ارسال فایل.")
 
-# فقط مالک ربات می‌تونه file_id بگیره
-async def get_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فقط مالک ربات می‌تونه فایل اضافه کنه"""
     if update.effective_user.id != OWNER_ID:
-        return  # به بقیه هیچی نشون نده
+        return
+
+    file_id = None
+    caption = update.message.caption or "فایل"
 
     if update.message.document:
         file_id = update.message.document.file_id
-        await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
     elif update.message.video:
         file_id = update.message.video.file_id
-        await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
     elif update.message.audio:
         file_id = update.message.audio.file_id
-        await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
     elif update.message.photo:
         file_id = update.message.photo[-1].file_id
-        await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
+
+    if not file_id:
+        await update.message.reply_text("فایل معتبری پیدا نشد.")
+        return
+
+    # ساخت کد تصادفی
+    key = generate_key()
+    while key in FILES:          # اگر تکراری بود دوباره بساز
+        key = generate_key()
+
+    FILES[key] = {
+        "file_id": file_id,
+        "caption": caption
+    }
+
+    link = f"https://t.me/Douroudbot?start={key}"
+
+    await update.message.reply_text(
+        f"✅ فایل با موفقیت اضافه شد.\n\n"
+        f"🔑 کد: `{key}`\n"
+        f"🔗 لینک:\n`{link}`",
+        parse_mode="Markdown"
+    )
 
 def main():
     TOKEN = os.getenv("TOKEN")
@@ -102,7 +124,7 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, get_file_id))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, add_file))
     print("ربات روشن شد...")
     app.run_polling()
 
