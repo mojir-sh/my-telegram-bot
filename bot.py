@@ -30,6 +30,23 @@ async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
             return False
     return True
 
+async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user):
+    """خبر دادن به مالک"""
+    username = f"@{user.username}" if user.username else "بدون یوزرنیم"
+    name = user.full_name
+
+    try:
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"⚠️ یک نفر پیام غیرمجاز فرستاد:\n\n"
+                 f"👤 نام: {name}\n"
+                 f"🔗 یوزرنیم: {username}\n"
+                 f"🆔 آی‌دی: `{user.id}`",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"خطا در ارسال پیام به مالک: {e}")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     args = context.args
@@ -86,10 +103,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا در ارسال فایل.\n{e}")
 
 async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # فقط مالک
-    if update.effective_user.id != OWNER_ID:
+    user = update.effective_user
+
+    # اگر کسی غیر از مالک فایل فرستاد
+    if user.id != OWNER_ID:
+        await update.message.reply_text(
+            "اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎"
+        )
+        await notify_owner(context, user)
         return
 
+    # از اینجا به بعد فقط برای مالک اجرا می‌شه
     file_id = None
     file_type = None
     caption = update.message.caption or "فایل"
@@ -185,21 +209,7 @@ async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎"
     )
-
-    username = f"@{user.username}" if user.username else "بدون یوزرنیم"
-    name = user.full_name
-
-    try:
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"⚠️ یک نفر پیام غیرمجاز فرستاد:\n\n"
-                 f"👤 نام: {name}\n"
-                 f"🔗 یوزرنیم: {username}\n"
-                 f"🆔 آی‌دی: `{user.id}`",
-            parse_mode="Markdown"
-        )
-    except:
-        pass
+    await notify_owner(context, user)
 
 def main():
     TOKEN = os.getenv("TOKEN")
