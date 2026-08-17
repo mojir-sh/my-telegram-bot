@@ -86,6 +86,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا در ارسال فایل.\n{e}")
 
 async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # فقط مالک
+    if update.effective_user.id != OWNER_ID:
+        return
+
     file_id = None
     file_type = None
     caption = update.message.caption or "فایل"
@@ -127,6 +131,9 @@ async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
     if not FILES:
         await update.message.reply_text("هنوز هیچ فایلی اضافه نشده.")
         return
@@ -139,6 +146,9 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
     if not context.args:
         await update.message.reply_text("لطفاً کد فایل را بنویسید.\nمثال: /del k9x2m4")
         return
@@ -152,6 +162,9 @@ async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
     text = """
 📖 راهنمای دستورات (فقط برای تو):
 
@@ -165,6 +178,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+
+    if user.id == OWNER_ID:
+        return
 
     await update.message.reply_text(
         "اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎"
@@ -193,17 +209,17 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    owner_filter = filters.User(OWNER_ID)
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("list", list_files, filters=owner_filter))
-    app.add_handler(CommandHandler("del", delete_file, filters=owner_filter))
-    app.add_handler(CommandHandler("help", help_command, filters=owner_filter))
+    app.add_handler(CommandHandler("list", list_files))
+    app.add_handler(CommandHandler("del", delete_file))
+    app.add_handler(CommandHandler("help", help_command))
 
-    media_filter = filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO
-    app.add_handler(MessageHandler(owner_filter & media_filter, add_file))
+    app.add_handler(MessageHandler(
+        filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO,
+        add_file
+    ))
 
-    app.add_handler(MessageHandler(\~owner_filter & filters.ALL, unknown_message))
+    app.add_handler(MessageHandler(filters.ALL, unknown_message))
 
     print("ربات روشن شد...")
     app.run_polling()
