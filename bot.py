@@ -7,18 +7,16 @@ import string
 
 # ==================== تنظیمات ====================
 OWNER_ID = 8898410167
-DELETE_AFTER = 90                  # ثانیه
+DELETE_AFTER = 90
 
 REQUIRED_CHANNELS = [
     "@comic_goddess",
 ]
 
-# اینجا فایل‌ها ذخیره می‌شن (تا وقتی ربات ری‌استارت نشه)
 FILES = {}
 # ================================================
 
 def generate_key(length=6):
-    """یک کد تصادفی می‌سازه"""
     chars = string.ascii_lowercase + string.digits
     return ''.join(random.choice(chars) for _ in range(length))
 
@@ -56,10 +54,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        sent_file = await update.message.reply_document(
-            document=file_info["file_id"],
-            caption=file_info.get("caption", "")
-        )
+        file_type = file_info["type"]
+        file_id = file_info["file_id"]
+        caption = file_info.get("caption", "")
+
+        if file_type == "document":
+            sent_file = await update.message.reply_document(document=file_id, caption=caption)
+        elif file_type == "video":
+            sent_file = await update.message.reply_video(video=file_id, caption=caption)
+        elif file_type == "audio":
+            sent_file = await update.message.reply_audio(audio=file_id, caption=caption)
+        elif file_type == "photo":
+            sent_file = await update.message.reply_photo(photo=file_id, caption=caption)
+        else:
+            await update.message.reply_text("❌ نوع فایل پشتیبانی نمی‌شود.")
+            return
 
         warning = await update.message.reply_text(
             f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
@@ -73,37 +82,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-    except Exception:
-        await update.message.reply_text("❌ خطا در ارسال فایل.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطا در ارسال فایل.\n{e}")
 
 async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """فقط مالک ربات می‌تونه فایل اضافه کنه"""
     if update.effective_user.id != OWNER_ID:
         return
 
     file_id = None
+    file_type = None
     caption = update.message.caption or "فایل"
 
     if update.message.document:
         file_id = update.message.document.file_id
+        file_type = "document"
     elif update.message.video:
         file_id = update.message.video.file_id
+        file_type = "video"
     elif update.message.audio:
         file_id = update.message.audio.file_id
+        file_type = "audio"
     elif update.message.photo:
         file_id = update.message.photo[-1].file_id
+        file_type = "photo"
 
     if not file_id:
         await update.message.reply_text("فایل معتبری پیدا نشد.")
         return
 
-    # ساخت کد تصادفی
     key = generate_key()
-    while key in FILES:          # اگر تکراری بود دوباره بساز
+    while key in FILES:
         key = generate_key()
 
     FILES[key] = {
         "file_id": file_id,
+        "type": file_type,
         "caption": caption
     }
 
@@ -116,6 +129,34 @@ async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """اگر کسی غیر از مالک پیام عادی بفرسته"""
+    user = update.effective_user
+
+    if user.id == OWNER_ID:
+        return  # به خودت کاری نداشته باش
+
+    # جواب طنز به کاربر
+    await update.message.reply_text(
+        "اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎"
+    )
+
+    # خبر دادن به مالک
+    username = f"@{user.username}" if user.username else "بدون یوزرنیم"
+    name = user.full_name
+
+    try:
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"⚠️ یک نفر پیام غیرمجاز فرستاد:\n\n"
+                 f"👤 نام: {name}\n"
+                 f"🔗 یوزرنیم: {username}\n"
+                 f"🆔 آی‌دی: `{user.id}`",
+            parse_mode="Markdown"
+        )
+    except:
+        pass
+
 def main():
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
@@ -123,8 +164,13 @@ def main():
         return
 
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, add_file))
+    
+    # این هندلر باید آخر باشه تا پیام‌های دیگه رو بگیره
+    app.add_handler(MessageHandler(filters.ALL, unknown_message))
+
     print("ربات روشن شد...")
     app.run_polling()
 
