@@ -41,8 +41,7 @@ async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user):
             text=f"⚠️ یک نفر پیام غیرمجاز فرستاد:\n\n"
                  f"👤 نام: {name}\n"
                  f"🔗 یوزرنیم: {username}\n"
-                 f"🆔 آی‌دی: `{user.id}`",
-            parse_mode="Markdown"
+                 f"🆔 آی‌دی: {user.id}"
         )
     except Exception as e:
         print(f"خطا در ارسال پیام به مالک: {e}")
