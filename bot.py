@@ -86,9 +86,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا در ارسال فایل.\n{e}")
 
 async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-
     file_id = None
     file_type = None
     caption = update.message.caption or "فایل"
@@ -129,19 +126,50 @@ async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not FILES:
+        await update.message.reply_text("هنوز هیچ فایلی اضافه نشده.")
+        return
+
+    text = "📋 لیست فایل‌های فعلی:\n\n"
+    for key, info in FILES.items():
+        link = f"https://t.me/Douroudbot?start={key}"
+        text += f"🔑 `{key}`\n📎 {info['caption']}\n🔗 {link}\n\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("لطفاً کد فایل را بنویسید.\nمثال: /del k9x2m4")
+        return
+
+    key = context.args[0]
+
+    if key in FILES:
+        del FILES[key]
+        await update.message.reply_text(f"✅ فایل با کد `{key}` حذف شد.", parse_mode="Markdown")
+    else:
+        await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = """
+📖 راهنمای دستورات (فقط برای تو):
+
+/list — نمایش لیست تمام فایل‌ها و لینک‌ها
+/del کد — حذف یک فایل (مثال: /del k9x2m4)
+/help — نمایش همین راهنما
+
+برای اضافه کردن فایل جدید، فقط فایل را برای ربات بفرست.
+"""
+    await update.message.reply_text(text)
+
 async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """اگر کسی غیر از مالک پیام عادی بفرسته"""
     user = update.effective_user
 
-    if user.id == OWNER_ID:
-        return  # به خودت کاری نداشته باش
-
-    # جواب طنز به کاربر
     await update.message.reply_text(
         "اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎"
     )
 
-    # خبر دادن به مالک
     username = f"@{user.username}" if user.username else "بدون یوزرنیم"
     name = user.full_name
 
@@ -165,14 +193,14 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
+    # دستورات فقط برای مالک
+    owner_filter = filters.User(OWNER_ID)
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, add_file))
-    
-    # این هندلر باید آخر باشه تا پیام‌های دیگه رو بگیره
-    app.add_handler(MessageHandler(filters.ALL, unknown_message))
+    app.add_handler(CommandHandler("list", list_files, filters=owner_filter))
+    app.add_handler(CommandHandler("del", delete_file, filters=owner_filter))
+    app.add_handler(CommandHandler("help", help_command, filters=owner_filter))
 
-    print("ربات روشن شد...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+    # اضافه کردن فایل فقط برای مالک
+    app.add_handler(MessageHandler(
+        owner_filter & (filters.Document.ALL | filters
