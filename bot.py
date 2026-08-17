@@ -9,11 +9,10 @@ REQUIRED_CHANNELS = [
 
 # فایل‌ها (فعلاً خالی می‌ذاریم، بعداً file_id اضافه می‌کنیم)
 FILES = {
-    # مثال:
-    # "test": {
-    #     "file_id": "BQACAgQAAxkBAAI...",
-    #     "caption": "فایل تست"
-    # },
+    "test1": {
+        "file_id": "BQACAgQAAxkBAAMFaoN0THEQTP61sIo3txzCez1gCxIAAkUdAALjMiBQblG95Vpfsh89BA",
+        "caption": "فایل تست"
+    },
 }
 
 async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
