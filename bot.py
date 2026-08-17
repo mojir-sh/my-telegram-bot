@@ -193,7 +193,6 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    # دستورات فقط برای مالک
     owner_filter = filters.User(OWNER_ID)
 
     app.add_handler(CommandHandler("start", start))
@@ -201,6 +200,13 @@ def main():
     app.add_handler(CommandHandler("del", delete_file, filters=owner_filter))
     app.add_handler(CommandHandler("help", help_command, filters=owner_filter))
 
-    # اضافه کردن فایل فقط برای مالک
-    app.add_handler(MessageHandler(
-        owner_filter & (filters.Document.ALL | filters
+    media_filter = filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO
+    app.add_handler(MessageHandler(owner_filter & media_filter, add_file))
+
+    app.add_handler(MessageHandler(\~owner_filter & filters.ALL, unknown_message))
+
+    print("ربات روشن شد...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
