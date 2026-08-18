@@ -151,12 +151,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "لطفاً آن را به Saved Messages یا جای دیگری فوروارد کنید."
         )
 
-        await asyncio.sleep(DELETE_AFTER)
-        try:
-            await sent_file.delete()
-            await warning.delete()
-        except:
-            pass
+        # پاک کردن در پس‌زمینه (ربات قفل نمی‌شه)
+        async def delete_messages():
+            await asyncio.sleep(DELETE_AFTER)
+            try:
+                await sent_file.delete()
+                await warning.delete()
+            except:
+                pass
+
+        asyncio.create_task(delete_messages())
 
     except Exception as e:
         await update.message.reply_text(f"❌ خطا در ارسال فایل.\n{e}")
