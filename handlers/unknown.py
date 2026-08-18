@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from config import OWNER_ID
 from services.notify import notify_owner
 
 
@@ -11,7 +12,7 @@ async def unknown_message(
 
     user = update.effective_user
 
-    if user.id == 8898410167:
+    if user.id == OWNER_ID:
         return
 
     await update.message.reply_text(
