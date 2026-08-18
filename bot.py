@@ -577,9 +577,15 @@ async def save_file(update, context):
                                created_at, max_downloads, expires_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            key, data["file_id"], data["file_type"], data.get("caption", ""),
-            data.get("category", "other"), data["uploaded_by"], time.time(),
-            data.get("max_downloads"), data.get("expires_at")
+            key,
+            data["file_id"],
+            data["file_type"],
+            data.get("caption", ""),
+            data.get("category", "other"),
+            data["uploaded_by"],
+            time.time(),
+            data.get("max_downloads"),
+            data.get("expires_at")
         ))
         await db.commit()
 
@@ -593,7 +599,7 @@ async def save_file(update, context):
         hours = int((data["expires_at"] - time.time()) / 3600)
         exp_text = f"حدود {hours} ساعت دیگر"
 
-    # برای جلوگیری از خطای Markdown، از parse_mode استفاده نمی‌کنیم
+    # بدون parse_mode تا لینک و @ داخل کپشن مشکلی ایجاد نکند
     text = (
         f"✅ فایل با موفقیت اضافه شد.\n\n"
         f"🔑 کد: {key}\n"
