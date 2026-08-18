@@ -11,8 +11,14 @@ from typing import Optional
 import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, ContextTypes, filters,
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ChatMemberHandler,
+    ContextTypes,
+    filters,
 )
 
 # ==================== تنظیمات ====================
@@ -22,13 +28,15 @@ RATE_LIMIT_COUNT = 10
 RATE_LIMIT_SECONDS = 300
 DB_PATH = "data/bot.db"
 
-# دسته‌بندی‌های پیش‌فرض
 DEFAULT_CATEGORIES = ["comic", "duijin", "image set", "1th person", "other"]
 
 (WAITING_CAPTION, WAITING_CATEGORY, WAITING_EXPIRY_TYPE, WAITING_EXPIRY_VALUE,
  WAITING_BROADCAST_CONFIRM, WAITING_EDIT_CAPTION, WAITING_EDIT_EXPIRY) = range(7)
 
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 RATE_LIMIT = {}
 
@@ -51,7 +59,6 @@ async def init_db():
                 is_active INTEGER DEFAULT 1
             )
         """)
-        # اضافه کردن ستون category اگر وجود نداشته باشد
         try:
             await db.execute("ALTER TABLE files ADD COLUMN category TEXT DEFAULT 'other'")
         except:
@@ -165,7 +172,7 @@ async def is_super_admin(user_id: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT is_super FROM admins WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
-            return bool(row and row[0])
+            return bool(row and row[0] == 1)
 
 
 async def is_admin(user_id: int) -> bool:
@@ -180,7 +187,7 @@ async def is_banned(user_id: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT is_banned FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
-            return bool(row and row[0])
+            return bool(row and row[0] == 1)
 
 
 async def resolve_identifier(identifier: str) -> Optional[int]:
@@ -205,7 +212,7 @@ async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
             member = await context.bot.get_chat_member(chat_id=ch["username"], user_id=user_id)
             if member.status not in ("member", "administrator", "creator"):
                 return False
-        except:
+        except Exception:
             return False
     return True
 
@@ -240,7 +247,7 @@ async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user, extra_text=""):
         logger.error(f"خطا در اطلاع به مالک: {e}")
 
 
-# ==================== start ====================
+# ==================== start و ارسال فایل ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await update_user(user)
@@ -271,7 +278,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons = []
         for ch in channels:
             buttons.append([InlineKeyboardButton(
-                f"عضویت در {ch['username']}", url=f"https://t.me/{ch['username'][1:]}"
+                f"عضویت در {ch['username']}",
+                url=f"https://t.me/{ch['username'].lstrip('@')}"
             )])
         buttons.append([InlineKeyboardButton("✅ عضو شدم — بررسی", callback_data=f"check_join:{args[0]}")])
         await update.message.reply_text(
@@ -297,8 +305,8 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ هنوز عضو نشدی.")
         return
 
-    await query.edit_message_text("✅ عضویت تأیید شد. در حال ارسال...")
-    # ارسال فایل
+    await query.edit_message_text("✅ عضویت تأیید شد. در حال ارسال فایل...")
+
     class FakeMsg:
         async def reply_document(self, **k): return await context.bot.send_document(chat_id=user.id, **k)
         async def reply_video(self, **k): return await context.bot.send_video(chat_id=user.id, **k)
@@ -307,9 +315,11 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         async def reply_voice(self, **k): return await context.bot.send_voice(chat_id=user.id, **k)
         async def reply_animation(self, **k): return await context.bot.send_animation(chat_id=user.id, **k)
         async def reply_text(self, **k): return await context.bot.send_message(chat_id=user.id, **k)
+
     class FakeUpdate:
         effective_user = user
         message = FakeMsg()
+
     await send_file_to_user(FakeUpdate(), context, file_key, user)
 
 
@@ -346,18 +356,19 @@ async def send_file_to_user(update, context, file_key, user):
     try:
         caption = caption or ""
         send_map = {
-            "document": update.message.reply_document,
-            "video": update.message.reply_video,
-            "audio": update.message.reply_audio,
-            "photo": update.message.reply_photo,
-            "voice": update.message.reply_voice,
-            "animation": update.message.reply_animation,
+            "document": ("document", update.message.reply_document),
+            "video": ("video", update.message.reply_video),
+            "audio": ("audio", update.message.reply_audio),
+            "photo": ("photo", update.message.reply_photo),
+            "voice": ("voice", update.message.reply_voice),
+            "animation": ("animation", update.message.reply_animation),
         }
-        func = send_map.get(file_type)
-        if not func:
+        if file_type not in send_map:
             await update.message.reply_text("❌ نوع فایل پشتیبانی نمی‌شود.")
             return
-        sent = await func(**{file_type: file_id, "caption": caption})
+
+        param_name, func = send_map[file_type]
+        sent = await func(**{param_name: file_id, "caption": caption})
 
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
@@ -367,6 +378,7 @@ async def send_file_to_user(update, context, file_key, user):
         warning = await update.message.reply_text(
             f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\nبه Saved Messages فوروارد کنید."
         )
+
         async def delete_later():
             await asyncio.sleep(DELETE_AFTER)
             try:
@@ -376,11 +388,11 @@ async def send_file_to_user(update, context, file_key, user):
                 pass
         asyncio.create_task(delete_later())
     except Exception as e:
-        logger.error(f"خطا در ارسال: {e}")
+        logger.error(f"خطا در ارسال فایل: {e}")
         await update.message.reply_text("❌ خطا در ارسال فایل.")
 
 
-# ==================== آپلود با دسته‌بندی ====================
+# ==================== آپلود فایل ====================
 async def add_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not await is_admin(user.id):
@@ -390,19 +402,29 @@ async def add_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = update.message
     file_id = file_type = None
-    if msg.document: file_id, file_type = msg.document.file_id, "document"
-    elif msg.video: file_id, file_type = msg.video.file_id, "video"
-    elif msg.audio: file_id, file_type = msg.audio.file_id, "audio"
-    elif msg.photo: file_id, file_type = msg.photo[-1].file_id, "photo"
-    elif msg.voice: file_id, file_type = msg.voice.file_id, "voice"
-    elif msg.animation: file_id, file_type = msg.animation.file_id, "animation"
+    if msg.document:
+        file_id, file_type = msg.document.file_id, "document"
+    elif msg.video:
+        file_id, file_type = msg.video.file_id, "video"
+    elif msg.audio:
+        file_id, file_type = msg.audio.file_id, "audio"
+    elif msg.photo:
+        file_id, file_type = msg.photo[-1].file_id, "photo"
+    elif msg.voice:
+        file_id, file_type = msg.voice.file_id, "voice"
+    elif msg.animation:
+        file_id, file_type = msg.animation.file_id, "animation"
 
     if not file_id:
         await update.message.reply_text("فایل معتبری پیدا نشد.")
         return ConversationHandler.END
 
-    context.user_data["upload"] = {"file_id": file_id, "file_type": file_type, "uploaded_by": user.id}
-    await update.message.reply_text("📝 کپشن را بنویسید (یا /skip):")
+    context.user_data["upload"] = {
+        "file_id": file_id,
+        "file_type": file_type,
+        "uploaded_by": user.id
+    }
+    await update.message.reply_text("📝 کپشن فایل را بنویسید (یا /skip):")
     return WAITING_CAPTION
 
 
@@ -413,7 +435,7 @@ async def receive_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cats = await get_all_categories()
     buttons = []
     row = []
-    for i, cat in enumerate(cats):
+    for cat in cats:
         row.append(InlineKeyboardButton(cat, callback_data=f"cat_{cat}"))
         if len(row) == 2:
             buttons.append(row)
@@ -436,7 +458,7 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "exp_cancel":
-        await query.edit_message_text("لغو شد.")
+        await query.edit_message_text("عملیات لغو شد.")
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -447,7 +469,6 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("cat_"):
         cat = data[4:]
         context.user_data["upload"]["category"] = cat
-        # برو به انتخاب انقضا
         keyboard = [
             [InlineKeyboardButton("♾ دائمی", callback_data="exp_permanent")],
             [InlineKeyboardButton("📥 تعداد دانلود", callback_data="exp_downloads")],
@@ -455,22 +476,20 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❌ لغو", callback_data="exp_cancel")]
         ]
         await query.edit_message_text(
-            f"دسته انتخاب شد: {cat}\n\nنوع انقضا را انتخاب کنید:",
+            f"دسته انتخاب شد: «{cat}»\n\nنوع انقضا را انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_EXPIRY_TYPE
-
     return WAITING_CATEGORY
 
 
 async def receive_custom_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cat = update.message.text.strip()
+    cat = (update.message.text or "").strip()
     if not cat:
         await update.message.reply_text("نام دسته نمی‌تواند خالی باشد.")
         return WAITING_CATEGORY
-    context.user_data["upload"]["category"] = cat
 
-    # ذخیره دسته جدید اگر وجود نداشت
+    context.user_data["upload"]["category"] = cat
     custom = json.loads(await get_setting("custom_categories", "[]"))
     if cat not in DEFAULT_CATEGORIES and cat not in custom:
         custom.append(cat)
@@ -493,7 +512,7 @@ async def receive_expiry_type(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     if query.data == "exp_cancel":
-        await query.edit_message_text("لغو شد.")
+        await query.edit_message_text("عملیات لغو شد.")
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -505,7 +524,7 @@ async def receive_expiry_type(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if query.data == "exp_downloads":
         context.user_data["upload"]["expiry_mode"] = "downloads"
-        await query.edit_message_text("حداکثر تعداد دانلود را وارد کنید:")
+        await query.edit_message_text("حداکثر تعداد دانلود را وارد کنید (مثلاً 50):")
         return WAITING_EXPIRY_VALUE
 
     if query.data == "exp_time":
@@ -516,12 +535,13 @@ async def receive_expiry_type(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def receive_expiry_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().lower()
+    text = (update.message.text or "").strip().lower()
     mode = context.user_data["upload"].get("expiry_mode")
     try:
         if mode == "downloads":
             value = int(text)
-            if value < 1: raise ValueError
+            if value < 1:
+                raise ValueError
             context.user_data["upload"]["max_downloads"] = value
             context.user_data["upload"]["expires_at"] = None
         elif mode == "time":
@@ -537,8 +557,8 @@ async def receive_expiry_value(update: Update, context: ContextTypes.DEFAULT_TYP
             raise ValueError
         await save_file(update, context)
         return ConversationHandler.END
-    except:
-        await update.message.reply_text("❌ مقدار نامعتبر. دوباره وارد کنید.")
+    except Exception:
+        await update.message.reply_text("❌ مقدار نامعتبر است. دوباره وارد کنید.")
         return WAITING_EXPIRY_VALUE
 
 
@@ -548,7 +568,8 @@ async def save_file(update, context):
     async with aiosqlite.connect(DB_PATH) as db:
         while True:
             async with db.execute("SELECT 1 FROM files WHERE key = ?", (key,)) as c:
-                if not await c.fetchone(): break
+                if not await c.fetchone():
+                    break
             key = generate_key()
 
         await db.execute("""
@@ -573,7 +594,7 @@ async def save_file(update, context):
         exp_text = f"حدود {hours} ساعت دیگر"
 
     text = (
-        f"✅ فایل اضافه شد.\n\n"
+        f"✅ فایل با موفقیت اضافه شد.\n\n"
         f"🔑 کد: `{key}`\n"
         f"📁 دسته: {data.get('category', 'other')}\n"
         f"📝 کپشن: {data.get('caption') or '—'}\n"
@@ -593,46 +614,295 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ==================== searchuser (درست‌شده) ====================
-async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==================== ویرایش فایل (/edit) ====================
+async def edit_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("مثال: /searchuser @username یا نام یا آیدی")
+        await update.message.reply_text("مثال: /edit کد_فایل")
         return
 
-    query = " ".join(context.args).lstrip("@").strip()
+    key = context.args[0]
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("""
-            SELECT user_id, name, username, download_count, is_banned, last_seen
-            FROM users
-            WHERE CAST(user_id AS TEXT) LIKE ? 
-               OR name LIKE ? 
-               OR IFNULL(username, '') LIKE ?
-            ORDER BY download_count DESC
-            LIMIT 20
-        """, (f"%{query}%", f"%{query}%", f"%{query}%")) as cursor:
-            rows = await cursor.fetchall()
+        async with db.execute(
+            "SELECT caption, category, max_downloads, expires_at, is_active FROM files WHERE key = ?", (key,)
+        ) as cursor:
+            row = await cursor.fetchone()
 
-    if not rows:
-        await update.message.reply_text("❌ هیچ کاربری پیدا نشد.")
+    if not row:
+        await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
         return
 
-    text = f"🔍 نتایج جستجو برای «{query}»:\n\n"
-    for uid, name, username, count, banned, last_seen in rows:
-        status = "🚫 بن‌شده" if banned else "✅ فعال"
-        uname = f"@{username}" if username else "بدون یوزرنیم"
-        text += (
-            f"👤 {name}\n"
-            f"   🔗 {uname}\n"
-            f"   🆔 `{uid}`\n"
-            f"   📥 دانلودها: {count}\n"
-            f"   وضعیت: {status}\n\n"
-        )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    caption, category, max_dl, expires_at, is_active = row
+    context.user_data["edit_key"] = key
+
+    status = "✅ فعال" if is_active else "❌ غیرفعال"
+    exp = "دائمی"
+    if max_dl is not None:
+        exp = f"حداکثر {max_dl} دانلود"
+    elif expires_at:
+        remaining = int((expires_at - time.time()) / 3600)
+        exp = f"{remaining} ساعت باقی‌مانده" if remaining > 0 else "منقضی"
+
+    keyboard = [
+        [InlineKeyboardButton("📝 تغییر کپشن", callback_data="edit_caption")],
+        [InlineKeyboardButton("📁 تغییر دسته", callback_data="edit_category")],
+        [InlineKeyboardButton("⏳ تغییر انقضا", callback_data="edit_expiry")],
+        [InlineKeyboardButton("🗑 حذف فایل", callback_data="edit_delete")],
+        [InlineKeyboardButton("❌ بستن", callback_data="edit_close")]
+    ]
+    await update.message.reply_text(
+        f"✏️ ویرایش فایل `{key}`\n\n"
+        f"وضعیت: {status}\n"
+        f"دسته: {category or 'other'}\n"
+        f"کپشن: {caption or '—'}\n"
+        f"انقضا: {exp}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 
-# ==================== لیست فایل‌ها با دسته ====================
+async def edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    key = context.user_data.get("edit_key")
+
+    if not key and data != "edit_close":
+        await query.edit_message_text("نشست منقضی شده. دوباره /edit بزن.")
+        return ConversationHandler.END
+
+    if data == "edit_close":
+        await query.edit_message_text("بسته شد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if data == "edit_delete":
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM files WHERE key = ?", (key,))
+            await db.commit()
+        await query.edit_message_text(f"✅ فایل `{key}` حذف شد.", parse_mode="Markdown")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if data == "edit_caption":
+        await query.edit_message_text("کپشن جدید را بفرستید (یا /skip برای پاک کردن):")
+        return WAITING_EDIT_CAPTION
+
+    if data == "edit_category":
+        cats = await get_all_categories()
+        buttons = []
+        row = []
+        for cat in cats:
+            row.append(InlineKeyboardButton(cat, callback_data=f"editcat_{cat}"))
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+        buttons.append([InlineKeyboardButton("✏️ دسته دلخواه", callback_data="editcat_custom")])
+        buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="edit_back")])
+        await query.edit_message_text("دسته جدید را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+        return WAITING_EDIT_EXPIRY  # reuse state temporarily
+
+    if data == "edit_expiry":
+        keyboard = [
+            [InlineKeyboardButton("♾ دائمی", callback_data="edit_exp_permanent")],
+            [InlineKeyboardButton("📥 تعداد دانلود", callback_data="edit_exp_downloads")],
+            [InlineKeyboardButton("⏰ زمان", callback_data="edit_exp_time")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="edit_back")]
+        ]
+        await query.edit_message_text("نوع انقضای جدید را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return WAITING_EDIT_EXPIRY
+
+    if data == "edit_back":
+        await query.edit_message_text("عملیات لغو شد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if data.startswith("editcat_"):
+        cat = data[8:]
+        if cat == "custom":
+            await query.edit_message_text("نام دسته دلخواه را بنویسید:")
+            return WAITING_EDIT_CAPTION  # temporary
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("UPDATE files SET category = ? WHERE key = ?", (cat, key))
+            await db.commit()
+        await query.edit_message_text(f"✅ دسته فایل به «{cat}» تغییر کرد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if data == "edit_exp_permanent":
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE files SET max_downloads = NULL, expires_at = NULL, is_active = 1 WHERE key = ?", (key,)
+            )
+            await db.commit()
+        await query.edit_message_text(f"✅ فایل `{key}` دائمی شد.", parse_mode="Markdown")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if data == "edit_exp_downloads":
+        context.user_data["edit_mode"] = "downloads"
+        await query.edit_message_text("حداکثر تعداد دانلود جدید را وارد کنید:")
+        return WAITING_EDIT_EXPIRY
+
+    if data == "edit_exp_time":
+        context.user_data["edit_mode"] = "time"
+        await query.edit_message_text("مدت زمان جدید را وارد کنید (مثال: 5h یا 2d):")
+        return WAITING_EDIT_EXPIRY
+
+    return ConversationHandler.END
+
+
+async def receive_edit_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    key = context.user_data.get("edit_key")
+    if not key:
+        await update.message.reply_text("نشست منقضی شده.")
+        return ConversationHandler.END
+
+    text = update.message.text or ""
+    if text.startswith("/skip"):
+        new_caption = ""
+    else:
+        new_caption = text
+
+    # اگر در حالت تغییر دسته دلخواه بودیم
+    if context.user_data.get("waiting_custom_cat"):
+        cat = text.strip()
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("UPDATE files SET category = ? WHERE key = ?", (cat, key))
+            await db.commit()
+        await update.message.reply_text(f"✅ دسته به «{cat}» تغییر کرد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE files SET caption = ? WHERE key = ?", (new_caption, key))
+        await db.commit()
+    await update.message.reply_text(f"✅ کپشن فایل `{key}` به‌روز شد.", parse_mode="Markdown")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def receive_edit_expiry_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    key = context.user_data.get("edit_key")
+    mode = context.user_data.get("edit_mode")
+    text = (update.message.text or "").strip().lower()
+
+    try:
+        if mode == "downloads":
+            value = int(text)
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "UPDATE files SET max_downloads = ?, expires_at = NULL, is_active = 1 WHERE key = ?",
+                    (value, key)
+                )
+                await db.commit()
+            await update.message.reply_text(f"✅ محدودیت دانلود به {value} تنظیم شد.")
+        elif mode == "time":
+            if text.endswith("h"):
+                expires_at = time.time() + int(text[:-1]) * 3600
+            elif text.endswith("d"):
+                expires_at = time.time() + int(text[:-1]) * 86400
+            else:
+                raise ValueError
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "UPDATE files SET max_downloads = NULL, expires_at = ?, is_active = 1 WHERE key = ?",
+                    (expires_at, key)
+                )
+                await db.commit()
+            await update.message.reply_text("✅ انقضای زمانی تنظیم شد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+    except Exception:
+        await update.message.reply_text("❌ مقدار نامعتبر. دوباره وارد کنید.")
+        return WAITING_EDIT_EXPIRY
+
+
+# ==================== لیست کانال‌ها (درست‌شده) ====================
+async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+        is_callback = True
+        target = update.callback_query
+    else:
+        user_id = update.effective_user.id
+        is_callback = False
+        target = update.message
+
+    if not await is_super_admin(user_id):
+        msg = "دسترسی نداری."
+        if is_callback:
+            await target.answer(msg, show_alert=True)
+        else:
+            await target.reply_text(msg)
+        return
+
+    channels = await get_required_channels()
+    if not channels:
+        text = "هیچ کانال اجباری‌ای تنظیم نشده."
+    else:
+        text = "📢 لیست کانال‌های اجباری فعلی:\n\n"
+        for ch in channels:
+            mode = ch.get("mode", "permanent")
+            if mode == "permanent":
+                extra = "♾ دائمی"
+            elif mode == "downloads":
+                extra = f"📥 تا {ch.get('max', '?')} کاربر"
+            elif mode == "time":
+                remaining = int((ch.get("expires_at", 0) - time.time()) / 3600)
+                extra = f"⏰ {remaining} ساعت باقی‌مانده" if remaining > 0 else "منقضی شده"
+            else:
+                extra = str(mode)
+            text += f"• {ch['username']} → {extra}\n"
+
+        text += "\n————————————\n"
+        text += "`/addchannel @ch permanent`\n"
+        text += "`/addchannel @ch downloads 500`\n"
+        text += "`/addchannel @ch time 3d`\n"
+        text += "`/removechannel @ch`"
+
+    if is_callback:
+        await target.edit_message_text(text, parse_mode="Markdown")
+    else:
+        await target.reply_text(text, parse_mode="Markdown")
+
+
+# ==================== تشخیص لفت دادن ====================
+async def on_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    result = update.chat_member
+    if not result:
+        return
+
+    old_status = result.old_chat_member.status
+    new_status = result.new_chat_member.status
+
+    if old_status in ("member", "administrator", "creator") and new_status in ("left", "kicked"):
+        user = result.new_chat_member.user
+        chat = result.chat
+        if not chat.username:
+            return
+
+        channels = await get_required_channels()
+        for ch in channels:
+            if ch["username"].lstrip("@").lower() == chat.username.lower():
+                try:
+                    await context.bot.send_message(
+                        chat_id=user.id,
+                        text=(
+                            f"⚠️ شما از کانال {ch['username']} خارج شدید!\n\n"
+                            f"لطفاً دوباره عضو شوید تا دسترسی‌تان قطع نشود:\n"
+                            f"https://t.me/{chat.username}"
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"نتوانستم به کاربر {user.id} پیام لفت بدهم: {e}")
+                break
+
+
+# ==================== بقیه دستورات ====================
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
     if not await is_admin(user_id):
@@ -657,12 +927,11 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if max_dl is not None:
             exp = f"{downloads}/{max_dl}"
         elif expires_at:
-            exp = "منقضی" if time.time() > expires_at else f"{int((expires_at-time.time())/3600)}h"
+            exp = "منقضی" if time.time() > expires_at else f"{int((expires_at - time.time()) / 3600)}h"
         text += f"{status} `{key}` | 📁{category or 'other'} | {caption or '—'} | {exp}\n"
     await target.reply_text(text, parse_mode="Markdown")
 
 
-# ==================== بقیه دستورات مدیریتی ====================
 async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
@@ -722,35 +991,42 @@ async def search_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-# ==================== کانال‌ها ====================
-async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
-    if not await is_super_admin(user_id):
-        await (update.message or update.callback_query.message).reply_text("دسترسی نداری.")
+async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update.effective_user.id):
         return
-    target = update.message or update.callback_query.message
-
-    channels = await get_required_channels()
-    if not channels:
-        await target.reply_text("هیچ کانال اجباری‌ای تنظیم نشده.")
+    if not context.args:
+        await update.message.reply_text("مثال: /searchuser @username یا نام یا آیدی")
         return
 
-    text = "📢 کانال‌های اجباری:\n\n"
-    for ch in channels:
-        mode = ch.get("mode", "permanent")
-        if mode == "permanent":
-            extra = "دائمی"
-        elif mode == "downloads":
-            extra = f"تا {ch.get('max', '?')} کاربر"
-        elif mode == "time":
-            remaining = int((ch.get("expires_at", 0) - time.time()) / 3600)
-            extra = f"{remaining}h باقی" if remaining > 0 else "منقضی"
-        else:
-            extra = mode
-        text += f"• {ch['username']} → {extra}\n"
+    query = " ".join(context.args).lstrip("@").strip()
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("""
+            SELECT user_id, name, username, download_count, is_banned
+            FROM users
+            WHERE CAST(user_id AS TEXT) LIKE ?
+               OR name LIKE ?
+               OR IFNULL(username, '') LIKE ?
+            ORDER BY download_count DESC
+            LIMIT 20
+        """, (f"%{query}%", f"%{query}%", f"%{query}%")) as cursor:
+            rows = await cursor.fetchall()
 
-    text += "\nدستورات:\n`/addchannel @ch permanent`\n`/addchannel @ch downloads 500`\n`/addchannel @ch time 2d`\n`/removechannel @ch`"
-    await target.reply_text(text, parse_mode="Markdown")
+    if not rows:
+        await update.message.reply_text("❌ هیچ کاربری پیدا نشد.")
+        return
+
+    text = f"🔍 نتایج برای «{query}»:\n\n"
+    for uid, name, username, count, banned in rows:
+        status = "🚫 بن‌شده" if banned else "✅ فعال"
+        uname = f"@{username}" if username else "بدون یوزرنیم"
+        text += (
+            f"👤 {name}\n"
+            f"   🔗 {uname}\n"
+            f"   🆔 `{uid}`\n"
+            f"   📥 دانلودها: {count}\n"
+            f"   وضعیت: {status}\n\n"
+        )
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -758,7 +1034,7 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if len(context.args) < 2:
         await update.message.reply_text(
-            "مثال:\n`/addchannel @ch permanent`\n`/addchannel @ch downloads 400`\n`/addchannel @ch time 2d`",
+            "مثال:\n`/addchannel @ch permanent`\n`/addchannel @ch downloads 500`\n`/addchannel @ch time 2d`",
             parse_mode="Markdown"
         )
         return
@@ -771,12 +1047,12 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if mode == "downloads":
         if len(context.args) < 3:
-            await update.message.reply_text("تعداد را بنویس. مثال: downloads 500")
+            await update.message.reply_text("تعداد را بنویسید.")
             return
         new_ch["max"] = int(context.args[2])
     elif mode == "time":
         if len(context.args) < 3:
-            await update.message.reply_text("زمان را بنویس. مثال: time 3d")
+            await update.message.reply_text("زمان را بنویسید (مثال: 3d).")
             return
         t = context.args[2].lower()
         if t.endswith("h"):
@@ -784,10 +1060,10 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif t.endswith("d"):
             new_ch["expires_at"] = time.time() + int(t[:-1]) * 86400
         else:
-            await update.message.reply_text("فرمت زمان اشتباه")
+            await update.message.reply_text("فرمت زمان اشتباه است.")
             return
     elif mode != "permanent":
-        await update.message.reply_text("حالت باید permanent / downloads / time باشد.")
+        await update.message.reply_text("حالت باید permanent یا downloads یا time باشد.")
         return
 
     channels.append(new_ch)
@@ -811,7 +1087,6 @@ async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ کانال {username} حذف شد.")
 
 
-# ==================== ادمین و سوپر ادمین ====================
 async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_super_admin(update.effective_user.id):
         return
@@ -862,7 +1137,7 @@ async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ پیدا نشد.")
         return
     if uid == OWNER_ID:
-        await update.message.reply_text("نمی‌تونی خودت رو حذف کنی.")
+        await update.message.reply_text("نمی‌توانی مالک را حذف کنی.")
         return
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM admins WHERE user_id = ?", (uid,))
@@ -884,7 +1159,7 @@ async def list_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid, is_super in rows:
         role = "سوپر ادمین" if is_super else "ادمین معمولی"
         text += f"• `{uid}` → {role}\n"
-    text += "\n`/makesuper @user` برای ارتقا به سوپر ادمین"
+    text += "\n`/makesuper @user` برای ارتقا (فقط مالک)"
     await target.reply_text(text, parse_mode="Markdown")
 
 
@@ -923,34 +1198,37 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ `{uid}` آنبن شد.", parse_mode="Markdown")
 
 
-# ==================== پنل ====================
 async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
     is_super = await is_super_admin(update.effective_user.id)
 
     keyboard = [
-        [InlineKeyboardButton("📋 لیست فایل‌ها", callback_data="panel_list"),
-         InlineKeyboardButton("📊 آمار", callback_data="panel_stats")],
-        [InlineKeyboardButton("🔍 جستجوی فایل", callback_data="panel_searchfile"),
-         InlineKeyboardButton("👤 جستجوی کاربر", callback_data="panel_searchuser")],
+        [
+            InlineKeyboardButton("📋 لیست فایل‌ها", callback_data="panel_list"),
+            InlineKeyboardButton("📊 آمار", callback_data="panel_stats")
+        ],
+        [
+            InlineKeyboardButton("🔍 جستجوی فایل", callback_data="panel_searchfile"),
+            InlineKeyboardButton("👤 جستجوی کاربر", callback_data="panel_searchuser")
+        ],
     ]
     if is_super:
-        keyboard.append([InlineKeyboardButton("📢 کانال‌ها", callback_data="panel_channels"),
-                         InlineKeyboardButton("👑 ادمین‌ها", callback_data="panel_admins")])
+        keyboard.append([
+            InlineKeyboardButton("📢 کانال‌ها", callback_data="panel_channels"),
+            InlineKeyboardButton("👑 ادمین‌ها", callback_data="panel_admins")
+        ])
         keyboard.append([InlineKeyboardButton("📨 برودکست", callback_data="panel_broadcast")])
     keyboard.append([InlineKeyboardButton("❌ بستن", callback_data="panel_close")])
 
-    await update.message.reply_text(
-        "🎛 پنل مدیریت",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text("🎛 پنل مدیریت", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+
     if data == "panel_close":
         await query.edit_message_text("بسته شد.")
         return
@@ -970,60 +1248,19 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("بنویس: /broadcast متن پیام")
 
 
-# ==================== آمار شبانه ====================
-async def daily_stats(context: ContextTypes.DEFAULT_TYPE):
-    async with aiosqlite.connect(DB_PATH) as db:
-        # بیشترین دانلود
-        async with db.execute(
-            "SELECT key, caption, category, downloads FROM files WHERE is_active = 1 ORDER BY downloads DESC LIMIT 5"
-        ) as c:
-            top_files = await c.fetchall()
-
-        # فعال‌ترین کاربران
-        async with db.execute(
-            "SELECT name, username, download_count FROM users ORDER BY download_count DESC LIMIT 5"
-        ) as c:
-            top_users = await c.fetchall()
-
-        async with db.execute("SELECT COUNT(*) FROM users") as c:
-            total_users = (await c.fetchone())[0]
-        async with db.execute("SELECT SUM(downloads) FROM files") as c:
-            total_downloads = (await c.fetchone())[0] or 0
-        async with db.execute("SELECT COUNT(*) FROM files WHERE is_active = 1") as c:
-            active_files = (await c.fetchone())[0]
-
-    text = "🌙 آمار شبانه ربات\n\n"
-    text += f"📁 فایل‌های فعال: {active_files}\n"
-    text += f"👥 کل کاربران: {total_users}\n"
-    text += f"📥 کل دانلودها: {total_downloads}\n\n"
-
-    text += "🏆 بیشترین دانلود شده‌ها:\n"
-    for i, (key, caption, cat, dl) in enumerate(top_files, 1):
-        text += f"{i}. {caption or key} ({cat}) → {dl}\n"
-
-    text += "\n🔥 فعال‌ترین کاربران:\n"
-    for i, (name, username, count) in enumerate(top_users, 1):
-        uname = f"@{username}" if username else ""
-        text += f"{i}. {name} {uname} → {count} دانلود\n"
-
-    try:
-        await context.bot.send_message(chat_id=OWNER_ID, text=text)
-    except Exception as e:
-        logger.error(f"خطا در ارسال آمار شبانه: {e}")
-
-
-# ==================== برودکست و بقیه ====================
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_super_admin(update.effective_user.id):
         return ConversationHandler.END
     if not context.args:
-        await update.message.reply_text("مثال: /broadcast سلام")
+        await update.message.reply_text("مثال: /broadcast سلام به همه")
         return ConversationHandler.END
     text = " ".join(context.args)
     context.user_data["broadcast_text"] = text
-    keyboard = [[InlineKeyboardButton("✅ ارسال", callback_data="broadcast_yes"),
-                 InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")]]
-    await update.message.reply_text(f"ارسال شود؟\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = [[
+        InlineKeyboardButton("✅ ارسال", callback_data="broadcast_yes"),
+        InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
+    ]]
+    await update.message.reply_text(f"این پیام ارسال شود؟\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard))
     return WAITING_BROADCAST_CONFIRM
 
 
@@ -1037,9 +1274,11 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = context.user_data.get("broadcast_text", "")
     await query.edit_message_text("در حال ارسال...")
+
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM users WHERE is_banned = 0") as c:
-            users = await c.fetchall()
+        async with db.execute("SELECT user_id FROM users WHERE is_banned = 0") as cursor:
+            users = await cursor.fetchall()
+
     success = fail = 0
     for (uid,) in users:
         try:
@@ -1048,9 +1287,45 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(0.05)
         except:
             fail += 1
-    await context.bot.send_message(OWNER_ID, f"✅ برودکست تمام\nموفق: {success} | ناموفق: {fail}")
+
+    await context.bot.send_message(OWNER_ID, f"✅ برودکست تمام شد\nموفق: {success} | ناموفق: {fail}")
     context.user_data.clear()
     return ConversationHandler.END
+
+
+async def daily_stats(context: ContextTypes.DEFAULT_TYPE):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT key, caption, category, downloads FROM files WHERE is_active = 1 ORDER BY downloads DESC LIMIT 5"
+        ) as c:
+            top_files = await c.fetchall()
+        async with db.execute(
+            "SELECT name, username, download_count FROM users ORDER BY download_count DESC LIMIT 5"
+        ) as c:
+            top_users = await c.fetchall()
+        async with db.execute("SELECT COUNT(*) FROM users") as c:
+            total_users = (await c.fetchone())[0]
+        async with db.execute("SELECT SUM(downloads) FROM files") as c:
+            total_downloads = (await c.fetchone())[0] or 0
+        async with db.execute("SELECT COUNT(*) FROM files WHERE is_active = 1") as c:
+            active_files = (await c.fetchone())[0]
+
+    text = "🌙 آمار شبانه ربات\n\n"
+    text += f"📁 فایل‌های فعال: {active_files}\n"
+    text += f"👥 کل کاربران: {total_users}\n"
+    text += f"📥 کل دانلودها: {total_downloads}\n\n"
+    text += "🏆 بیشترین دانلودها:\n"
+    for i, (key, caption, cat, dl) in enumerate(top_files, 1):
+        text += f"{i}. {caption or key} ({cat}) → {dl}\n"
+    text += "\n🔥 فعال‌ترین کاربران:\n"
+    for i, (name, username, count) in enumerate(top_users, 1):
+        uname = f"@{username}" if username else ""
+        text += f"{i}. {name} {uname} → {count}\n"
+
+    try:
+        await context.bot.send_message(chat_id=OWNER_ID, text=text)
+    except Exception as e:
+        logger.error(f"خطا در آمار شبانه: {e}")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1062,6 +1337,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /panel — پنل مدیریت
 /list — لیست فایل‌ها
 /del کد
+/edit کد — ویرایش فایل
 /stats
 /searchfile کلمه
 /searchuser نام یا @username
@@ -1073,7 +1349,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /removechannel @ch
 
 /addadmin @user
-/makesuper @user   (فقط مالک)
+/makesuper @user
 /removeadmin @user
 /listadmins
 /ban @user
@@ -1081,10 +1357,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /broadcast پیام
 /help
 
-فایل بفرست → آپلود با دسته و انقضا
+فایل بفرست → آپلود
 """
     elif await is_admin(user.id):
-        text = "/list /del /stats /searchfile /searchuser /panel /help\nفایل بفرست تا آپلود بشه"
+        text = "/list /del /edit /stats /searchfile /searchuser /panel /help\nفایل بفرست تا آپلود بشه"
     else:
         text = "از لینک فایل استفاده کنید.\n/suggest متن پیشنهاد"
     await update.message.reply_text(text)
@@ -1120,24 +1396,43 @@ async def cleanup_job(context: ContextTypes.DEFAULT_TYPE):
 def main():
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
-        print("❌ TOKEN تنظیم نشده!")
+        print("❌ متغیر محیطی TOKEN تنظیم نشده!")
         return
 
     app = Application.builder().token(TOKEN).build()
 
+    # مکالمه آپلود
     upload_conv = ConversationHandler(
         entry_points=[MessageHandler(
-            filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ANIMATION,
+            filters.Document.ALL | filters.VIDEO | filters.AUDIO |
+            filters.PHOTO | filters.VOICE | filters.ANIMATION,
             add_file_start
         )],
         states={
-            WAITING_CAPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_caption), CommandHandler("skip", receive_caption)],
+            WAITING_CAPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_caption),
+                CommandHandler("skip", receive_caption),
+            ],
             WAITING_CATEGORY: [
-                CallbackQueryHandler(receive_category, pattern="^cat_|^exp_cancel"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_category)
+                CallbackQueryHandler(receive_category, pattern="^(cat_|exp_cancel)"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_category),
             ],
             WAITING_EXPIRY_TYPE: [CallbackQueryHandler(receive_expiry_type)],
             WAITING_EXPIRY_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_expiry_value)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    )
+
+    # مکالمه ویرایش
+    edit_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(edit_callback, pattern="^edit_")],
+        states={
+            WAITING_EDIT_CAPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_caption)],
+            WAITING_EDIT_EXPIRY: [
+                CallbackQueryHandler(edit_callback, pattern="^edit_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_expiry_value),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
@@ -1152,6 +1447,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join:"))
     app.add_handler(upload_conv)
+    app.add_handler(CommandHandler("edit", edit_file_start))
+    app.add_handler(edit_conv)
     app.add_handler(broadcast_conv)
 
     app.add_handler(CommandHandler("panel", panel))
@@ -1178,16 +1475,19 @@ def main():
     app.add_handler(CommandHandler("suggest", suggest))
     app.add_handler(MessageHandler(filters.ALL, unknown_message))
 
+    # تشخیص لفت دادن از کانال
+    app.add_handler(ChatMemberHandler(on_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
+
     if app.job_queue:
         app.job_queue.run_repeating(cleanup_job, interval=600, first=30)
-        # آمار شبانه هر روز ساعت 21:00 UTC (حدود 00:30 تهران)
         app.job_queue.run_daily(daily_stats, time=dt_time(hour=21, minute=0))
 
-    async def post_init(app):
+    async def post_init(application: Application):
         await init_db()
         logger.info("دیتابیس آماده شد")
 
     app.post_init = post_init
+
     print("ربات روشن شد...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
