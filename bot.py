@@ -429,6 +429,65 @@ async def send_file_to_user(update, context, file_key, user):
         logger.error(f"خطا در ارسال فایل: {e}")
         await update.message.reply_text("❌ خطا در ارسال فایل.")
 
+async def like_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not query.data.startswith("like:"):
+        return
+
+    file_key = query.data.split(":", 1)[1]
+    user_id = query.from_user.id
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute(
+                "INSERT INTO likes (file_key, user_id, created_at) VALUES (?, ?, ?)",
+                (file_key, user_id, time.time())
+            )
+            await db.commit()
+            await query.answer("❤️ لایک ثبت شد!", show_alert=False)
+        except:
+            await query.answer("قبلاً لایک کردی!", show_alert=True)
+            return
+
+    # آپدیت دکمه‌ها
+    new_keyboard = await get_file_keyboard(file_key)
+    try:
+        await query.edit_message_reply_markup(reply_markup=new_keyboard)
+    except:
+        pass
+
+
+async def comment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not query.data.startswith("comment:"):
+        return
+
+    file_key = query.data.split(":", 1)[1]
+    context.user_data["waiting_comment"] = file_key
+    await query.message.reply_text("💬 کامنت خود را بنویسید (یا /cancel برای لغو):")
+
+
+async def receive_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file_key = context.user_data.get("waiting_comment")
+    if not file_key:
+        return
+
+    comment = update.message.text
+    user = update.effective_user
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO comments (file_key, user_id, comment, created_at) VALUES (?, ?, ?, ?)",
+            (file_key, user.id, comment, time.time())
+        )
+        await db.commit()
+
+    await update.message.reply_text("✅ کامنت شما ارسال شد. ممنون!")
+    await notify_owner(context, user, f"کامنت روی فایل `{file_key}`:\n{comment}")
+    context.user_data.pop("waiting_comment", None)
+
 
 # ==================== آپلود فایل ====================
 async def add_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
