@@ -1105,28 +1105,16 @@ async def receive_edit_expiry_value(update: Update, context: ContextTypes.DEFAUL
 
 # ==================== لیست کانال‌ها (درست‌شده) ====================
 async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query:
-        user_id = update.callback_query.from_user.id
-        is_callback = True
-        target = update.callback_query
-    else:
-        user_id = update.effective_user.id
-        is_callback = False
-        target = update.message
-
+    query = update.callback_query
+    user_id = query.from_user.id if query else update.effective_user.id
     if not await is_super_admin(user_id):
-        msg = "دسترسی نداری."
-        if is_callback:
-            await target.answer(msg, show_alert=True)
-        else:
-            await target.reply_text(msg)
         return
 
     channels = await get_required_channels()
     if not channels:
         text = "هیچ کانال اجباری‌ای تنظیم نشده."
     else:
-        text = "📢 لیست کانال‌های اجباری فعلی:\n\n"
+        text = "📢 <b>کانال‌های اجباری</b>\n\n"
         for ch in channels:
             mode = ch.get("mode", "permanent")
             if mode == "permanent":
@@ -1140,17 +1128,12 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 extra = str(mode)
             text += f"• {ch['username']} → {extra}\n"
 
-        text += "\n————————————\n"
-        text += "`/addchannel @ch permanent`\n"
-        text += "`/addchannel @ch downloads 500`\n"
-        text += "`/addchannel @ch time 3d`\n"
-        text += "`/removechannel @ch`"
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
-    if is_callback:
-        await target.edit_message_text(text, parse_mode="Markdown")
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     else:
-        await target.reply_text(text, parse_mode="Markdown")
-
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 # ==================== تشخیص لفت دادن ====================
 async def on_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
