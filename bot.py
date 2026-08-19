@@ -265,6 +265,25 @@ async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user, extra_text=""):
         logger.error(f"خطا در اطلاع به مالک: {e}")
 
 
+async def get_file_keyboard(file_key: str) -> InlineKeyboardMarkup:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT downloads FROM files WHERE key = ?", (file_key,)) as c:
+            row = await c.fetchone()
+            downloads = row[0] if row else 0
+
+        async with db.execute("SELECT COUNT(*) FROM likes WHERE file_key = ?", (file_key,)) as c:
+            likes = (await c.fetchone())[0]
+
+    keyboard = [
+        [
+            InlineKeyboardButton(f"📥 {downloads}", callback_data=f"dlcount:{file_key}"),
+            InlineKeyboardButton(f"❤️ {likes}", callback_data=f"like:{file_key}"),
+            InlineKeyboardButton("💬 کامنت", callback_data=f"comment:{file_key}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 # ==================== start و ارسال فایل ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
