@@ -400,40 +400,86 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     args = context.args
-    if not args:
-        await update.message.reply_text(
-            "سلام! 👋\nلطفاً از لینک مخصوص فایل استفاده کنید.\n\nبرای پیشنهاد: /suggest متن"
-        )
+
+    # ثبت معرف (اگر با لینک دعوت آمده باشد)
+    if args and args[0].startswith("ref_"):
+        try:
+            referrer_id = int(args[0][4:])
+            if referrer_id != user.id:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    async with db.execute("SELECT referred_by FROM users WHERE user_id = ?", (user.id,)) as c:
+                        row = await c.fetchone()
+                    if row and row[0] is None:
+                        await db.execute(
+                            "UPDATE users SET referred_by = ? WHERE user_id = ?",
+                            (referrer_id, user.id)
+                        )
+                        await db.commit()
+        except:
+            pass
+
+    # اگر پارامتر فایل داشت → ارسال فایل
+    if args and not args[0].startswith("ref_"):
+        allowed, wait_seconds = check_rate_limit(user.id)
+        if not allowed:
+            minutes = wait_seconds // 60
+            seconds = wait_seconds % 60
+            wait_text = f"{minutes} دقیقه و {seconds} ثانیه" if minutes else f"{seconds} ثانیه"
+            await update.message.reply_text(
+                f"⏳ شما به سقف استفاده رسیدید!\nلطفاً {wait_text} صبر کنید."
+            )
+            return
+
+        if not await is_member(user.id, context):
+            channels = await get_required_channels()
+            buttons = []
+            for ch in channels:
+                buttons.append([InlineKeyboardButton(
+                    f"عضویت در {ch['username']}",
+                    url=f"https://t.me/{ch['username'].lstrip('@')}"
+                )])
+            buttons.append([InlineKeyboardButton("✅ عضو شدم — بررسی", callback_data=f"check_join:{args[0]}")])
+            await update.message.reply_text(
+                "❌ هنوز عضو کانال‌های زیر نیستید:\n\n" +
+                "\n".join(ch["username"] for ch in channels) +
+                "\n\nبعد از عضویت روی دکمه زیر بزنید:",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+            return
+
+        await send_file_to_user(update, context, args[0], user)
         return
 
-    allowed, wait_seconds = check_rate_limit(user.id)
-    if not allowed:
-        minutes = wait_seconds // 60
-        seconds = wait_seconds % 60
-        wait_text = f"{minutes} دقیقه و {seconds} ثانیه" if minutes else f"{seconds} ثانیه"
-        await update.message.reply_text(
-            f"⏳ شما به سقف استفاده رسیدید!\nلطفاً {wait_text} صبر کنید."
-        )
-        return
+    # حالت عادی /start → نمایش لینک دعوت و وضعیت
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT points, level FROM users WHERE user_id = ?", (user.id,)) as c:
+            row = await c.fetchone()
 
-    if not await is_member(user.id, context):
-        channels = await get_required_channels()
-        buttons = []
-        for ch in channels:
-            buttons.append([InlineKeyboardButton(
-                f"عضویت در {ch['username']}",
-                url=f"https://t.me/{ch['username'].lstrip('@')}"
-            )])
-        buttons.append([InlineKeyboardButton("✅ عضو شدم — بررسی", callback_data=f"check_join:{args[0]}")])
-        await update.message.reply_text(
-            "❌ هنوز عضو کانال‌های زیر نیستید:\n\n" +
-            "\n".join(ch["username"] for ch in channels) +
-            "\n\nبعد از عضویت روی دکمه زیر بزنید:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-        return
+    points = row[0] if row else 0
+    info = get_level_info(points)
 
-    await send_file_to_user(update, context, args[0], user)
+    bot_username = (await context.bot.get_me()).username
+    invite_link = f"https://t.me/{bot_username}?start=ref_{user.id}"
+
+    text = (
+        f"سلام {user.first_name}! 👋\n\n"
+        f"🎖 سطح فعلی: **{info['name']}**\n"
+        f"⭐ امتیاز: {points}\n"
+    )
+
+    if info["next_points"]:
+        remaining = info["next_points"] - points
+        text += f"📈 تا سطح بعدی ({info['next_name']}): {remaining} امتیاز\n"
+    else:
+        text += "👑 تو در بالاترین سطح هستی!\n"
+
+    text += (
+        f"\n🔗 لینک دعوت اختصاصی تو:\n"
+        f"{invite_link}\n\n"
+        f"با دعوت دوستات می‌تونی امتیاز بگیری و سطحت رو بالا ببری!"
+    )
+
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
