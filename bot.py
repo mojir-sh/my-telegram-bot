@@ -455,15 +455,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with db.execute("SELECT points, level FROM users WHERE user_id = ?", (user.id,)) as c:
             row = await c.fetchone()
 
-    points = row[0] if row else 0
+    points = row[0] if row and row[0] is not None else 0
     info = get_level_info(points)
 
     bot_username = (await context.bot.get_me()).username
     invite_link = f"https://t.me/{bot_username}?start=ref_{user.id}"
 
     text = (
-        f"سلام {user.first_name}! 👋\n\n"
-        f"🎖 سطح فعلی: **{info['name']}**\n"
+        f"سلام {user.first_name}!\n\n"
+        f"🎖 سطح فعلی: {info['name']}\n"
         f"⭐ امتیاز: {points}\n"
     )
 
@@ -479,7 +479,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"با دعوت دوستات می‌تونی امتیاز بگیری و سطحت رو بالا ببری!"
     )
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text)
 
 
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
