@@ -1231,10 +1231,10 @@ async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
+    query = update.callback_query
+    user_id = query.from_user.id if query else update.effective_user.id
     if not await is_admin(user_id):
         return
-    target = update.message or update.callback_query.message
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT COUNT(*) FROM files WHERE is_active = 1") as c:
@@ -1243,10 +1243,26 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users = (await c.fetchone())[0]
         async with db.execute("SELECT SUM(downloads) FROM files") as c:
             total_dl = (await c.fetchone())[0] or 0
+        async with db.execute("SELECT SUM(points) FROM users") as c:
+            total_points = (await c.fetchone())[0] or 0
+        async with db.execute("SELECT COUNT(*) FROM likes") as c:
+            total_likes = (await c.fetchone())[0]
 
-    await target.reply_text(
-        f"📊 آمار کلی\n\n📁 فایل فعال: {active}\n👥 کاربر: {users}\n📥 کل دانلود: {total_dl}"
+    text = (
+        f"📊 <b>آمار کامل ربات</b>\n\n"
+        f"📁 فایل‌های فعال: <code>{active}</code>\n"
+        f"👥 کل کاربران: <code>{users}</code>\n"
+        f"📥 کل دانلودها: <code>{total_dl}</code>\n"
+        f"⭐ کل امتیازات: <code>{total_points}</code>\n"
+        f"❤️ کل لایک‌ها: <code>{total_likes}</code>"
     )
+
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
+
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def search_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
