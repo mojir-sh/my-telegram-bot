@@ -1480,54 +1480,210 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ `{uid}` آنبن شد.", parse_mode="Markdown")
 
 
+# ==================== پنل مدرن ====================
+
+async def get_quick_stats():
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COUNT(*) FROM files WHERE is_active = 1") as c:
+            active_files = (await c.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM users") as c:
+            total_users = (await c.fetchone())[0]
+        async with db.execute("SELECT SUM(downloads) FROM files") as c:
+            total_downloads = (await c.fetchone())[0] or 0
+        async with db.execute("SELECT SUM(points) FROM users") as c:
+            total_points = (await c.fetchone())[0] or 0
+    return active_files, total_users, total_downloads, total_points
+
+
 async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
+
     is_super = await is_super_admin(update.effective_user.id)
+    active_files, total_users, total_downloads, total_points = await get_quick_stats()
+
+    text = (
+        f"🎛 <b>پنل مدیریت پیشرفته</b>\n\n"
+        f"📊 <b>آمار لحظه‌ای</b>\n"
+        f"├ 📁 فایل فعال: <code>{active_files}</code>\n"
+        f"├ 👥 کاربر: <code>{total_users}</code>\n"
+        f"├ 📥 کل دانلود: <code>{total_downloads}</code>\n"
+        f"└ ⭐ کل امتیاز: <code>{total_points}</code>\n"
+    )
 
     keyboard = [
         [
-            InlineKeyboardButton("📋 لیست فایل‌ها", callback_data="panel_list"),
-            InlineKeyboardButton("📊 آمار", callback_data="panel_stats")
+            InlineKeyboardButton("📁 مدیریت فایل‌ها", callback_data="panel_files"),
+            InlineKeyboardButton("👥 مدیریت کاربران", callback_data="panel_users")
         ],
         [
-            InlineKeyboardButton("🔍 جستجوی فایل", callback_data="panel_searchfile"),
-            InlineKeyboardButton("👤 جستجوی کاربر", callback_data="panel_searchuser")
+            InlineKeyboardButton("📈 آمار کامل", callback_data="panel_stats"),
+            InlineKeyboardButton("⚙️ تنظیمات", callback_data="panel_settings")
         ],
     ]
+
     if is_super:
         keyboard.append([
-            InlineKeyboardButton("📢 کانال‌ها", callback_data="panel_channels"),
+            InlineKeyboardButton("📨 برودکست", callback_data="panel_broadcast"),
             InlineKeyboardButton("👑 ادمین‌ها", callback_data="panel_admins")
         ])
-        keyboard.append([InlineKeyboardButton("📨 برودکست", callback_data="panel_broadcast")])
-    keyboard.append([InlineKeyboardButton("❌ بستن", callback_data="panel_close")])
 
-    await update.message.reply_text("🎛 پنل مدیریت", reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard.append([InlineKeyboardButton("❌ بستن پنل", callback_data="panel_close")])
+
+    await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
 
 
 async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
 
-    if data == "panel_close":
-        await query.edit_message_text("بسته شد.")
+    if not await is_admin(user_id):
+        await query.edit_message_text("دسترسی نداری.")
         return
-    if data == "panel_list":
-        await list_files(update, context)
-    elif data == "panel_stats":
+
+    is_super = await is_super_admin(user_id)
+
+    # ---------- بستن ----------
+    if data == "panel_close":
+        await query.edit_message_text("پنل بسته شد.")
+        return
+
+    # ---------- بازگشت به پنل اصلی ----------
+    if data == "panel_back":
+        active_files, total_users, total_downloads, total_points = await get_quick_stats()
+        text = (
+            f"🎛 <b>پنل مدیریت پیشرفته</b>\n\n"
+            f"📊 <b>آمار لحظه‌ای</b>\n"
+            f"├ 📁 فایل فعال: <code>{active_files}</code>\n"
+            f"├ 👥 کاربر: <code>{total_users}</code>\n"
+            f"├ 📥 کل دانلود: <code>{total_downloads}</code>\n"
+            f"└ ⭐ کل امتیاز: <code>{total_points}</code>\n"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("📁 مدیریت فایل‌ها", callback_data="panel_files"),
+                InlineKeyboardButton("👥 مدیریت کاربران", callback_data="panel_users")
+            ],
+            [
+                InlineKeyboardButton("📈 آمار کامل", callback_data="panel_stats"),
+                InlineKeyboardButton("⚙️ تنظیمات", callback_data="panel_settings")
+            ],
+        ]
+        if is_super:
+            keyboard.append([
+                InlineKeyboardButton("📨 برودکست", callback_data="panel_broadcast"),
+                InlineKeyboardButton("👑 ادمین‌ها", callback_data="panel_admins")
+            ])
+        keyboard.append([InlineKeyboardButton("❌ بستن پنل", callback_data="panel_close")])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
+    # ---------- مدیریت فایل‌ها ----------
+    if data == "panel_files":
+        keyboard = [
+            [InlineKeyboardButton("📋 لیست فایل‌ها", callback_data="do_list")],
+            [InlineKeyboardButton("🔍 جستجوی فایل", callback_data="do_searchfile")],
+            [InlineKeyboardButton("🗑 حذف فایل", callback_data="do_del")],
+            [InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]
+        ]
+        await query.edit_message_text(
+            "📁 <b>مدیریت فایل‌ها</b>\n\nیکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        return
+
+    # ---------- مدیریت کاربران ----------
+    if data == "panel_users":
+        keyboard = [
+            [InlineKeyboardButton("🔍 جستجوی کاربر", callback_data="do_searchuser")],
+            [InlineKeyboardButton("🚫 بن کردن", callback_data="do_ban")],
+            [InlineKeyboardButton("✅ آنبن کردن", callback_data="do_unban")],
+            [InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]
+        ]
+        await query.edit_message_text(
+            "👥 <b>مدیریت کاربران</b>\n\nیکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        return
+
+    # ---------- تنظیمات ----------
+    if data == "panel_settings":
+        if not is_super:
+            await query.answer("فقط سوپر ادمین دسترسی دارد.", show_alert=True)
+            return
+        keyboard = [
+            [InlineKeyboardButton("📢 مدیریت کانال‌ها", callback_data="do_channels")],
+            [InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]
+        ]
+        await query.edit_message_text(
+            "⚙️ <b>تنظیمات</b>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        return
+
+    # ---------- آمار ----------
+    if data == "panel_stats":
         await stats(update, context)
-    elif data == "panel_channels":
-        await list_channels(update, context)
-    elif data == "panel_admins":
+        return
+
+    # ---------- برودکست ----------
+    if data == "panel_broadcast":
+        await query.edit_message_text(
+            "📨 برای ارسال پیام همگانی بنویس:\n<code>/broadcast متن پیام</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_back")]])
+        )
+        return
+
+    # ---------- ادمین‌ها ----------
+    if data == "panel_admins":
         await list_admins(update, context)
-    elif data == "panel_searchfile":
-        await query.edit_message_text("بنویس: /searchfile کلمه")
-    elif data == "panel_searchuser":
-        await query.edit_message_text("بنویس: /searchuser نام یا @username")
-    elif data == "panel_broadcast":
-        await query.edit_message_text("بنویس: /broadcast متن پیام")
+        return
+
+    # ---------- اکشن‌های سریع ----------
+    if data == "do_list":
+        await list_files(update, context)
+    elif data == "do_searchfile":
+        await query.edit_message_text(
+            "🔍 بنویس:\n<code>/searchfile کلمه</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_files")]])
+        )
+    elif data == "do_del":
+        await query.edit_message_text(
+            "🗑 بنویس:\n<code>/del کد_فایل</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_files")]])
+        )
+    elif data == "do_searchuser":
+        await query.edit_message_text(
+            "🔍 بنویس:\n<code>/searchuser نام یا @username</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
+        )
+    elif data == "do_ban":
+        await query.edit_message_text(
+            "🚫 بنویس:\n<code>/ban @user یا آیدی</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
+        )
+    elif data == "do_unban":
+        await query.edit_message_text(
+            "✅ بنویس:\n<code>/unban @user یا آیدی</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
+        )
+    elif data == "do_channels":
+        await list_channels(update, context)
 
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
