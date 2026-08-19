@@ -1581,8 +1581,8 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("suggest", suggest))
     app.add_handler(MessageHandler(filters.ALL, unknown_message))
-
-app.add_handler(CallbackQueryHandler(like_callback, pattern="^like:"))
+    
+    app.add_handler(CallbackQueryHandler(like_callback, pattern="^like:"))
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment:"))
     app.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, receive_comment), group=1)
 
