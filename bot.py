@@ -564,6 +564,30 @@ async def send_file_to_user(update, context, file_key, user):
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
             await db.execute("UPDATE users SET download_count = download_count + 1 WHERE user_id = ?", (user.id,))
             await db.commit()
+# ===== سیستم امتیاز =====
+        # ۱ امتیاز برای دانلود
+            await add_points(user.id, 1, context)
+
+        # بررسی پاداش دعوت (فقط برای اولین دانلود)
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT referred_by, download_count FROM users WHERE user_id = ?", (user.id,)
+            ) as c:
+                row = await c.fetchone()
+
+            if row and row[0] and row[1] == 1:  # اولین دانلود و معرف داشته
+                referrer_id = row[0]
+                await add_points(referrer_id, 100, context)
+
+                # اطلاع به دعوت‌کننده
+                try:
+                    await context.bot.send_message(
+                        chat_id=referrer_id,
+                        text=f"🎉 یکی از دعوت‌شده‌های تو اولین فایلش رو دانلود کرد!\n+۱۰۰ امتیاز گرفتی."
+                    )
+                except:
+                    pass
+        # ========================
 
         warning = await update.message.reply_text(
             f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\nبه Saved Messages فوروارد کنید."
