@@ -405,7 +405,8 @@ async def send_file_to_user(update, context, file_key, user):
             return
 
         param_name, func = send_map[file_type]
-        sent = await func(**{param_name: file_id, "caption": caption})
+        keyboard = await get_file_keyboard(file_key)
+        sent = await func(**{param_name: file_id, "caption": caption, "reply_markup": keyboard})
 
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
