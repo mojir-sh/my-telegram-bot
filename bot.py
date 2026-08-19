@@ -99,7 +99,8 @@ async def init_db():
                          ("required_channels", default_channels))
         await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                          ("custom_categories", json.dumps([])))
-await db.execute("""
+        
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS likes (
                 file_key TEXT NOT NULL,
                 user_id INTEGER NOT NULL,
