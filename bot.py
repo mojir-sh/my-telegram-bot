@@ -1186,33 +1186,37 @@ async def on_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ==================== بقیه دستورات ====================
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
+    query = update.callback_query
+    user_id = query.from_user.id if query else update.effective_user.id
     if not await is_admin(user_id):
         return
-    target = update.message or update.callback_query.message
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
             SELECT key, caption, category, downloads, max_downloads, expires_at, is_active
-            FROM files ORDER BY created_at DESC LIMIT 40
+            FROM files ORDER BY created_at DESC LIMIT 30
         """) as cursor:
             rows = await cursor.fetchall()
 
     if not rows:
-        await target.reply_text("هیچ فایلی وجود ندارد.")
-        return
+        text = "هیچ فایلی وجود ندارد."
+    else:
+        text = "📋 <b>آخرین فایل‌ها</b>\n\n"
+        for key, caption, category, downloads, max_dl, expires_at, is_active in rows:
+            status = "✅" if is_active else "❌"
+            exp = "دائمی"
+            if max_dl is not None:
+                exp = f"{downloads}/{max_dl}"
+            elif expires_at:
+                exp = "منقضی" if time.time() > expires_at else f"{int((expires_at - time.time()) / 3600)}h"
+            text += f"{status} <code>{key}</code> | {category or 'other'} | {caption or '—'} | {exp}\n"
 
-    text = "📋 آخرین فایل‌ها:\n\n"
-    for key, caption, category, downloads, max_dl, expires_at, is_active in rows:
-        status = "✅" if is_active else "❌"
-        exp = "دائمی"
-        if max_dl is not None:
-            exp = f"{downloads}/{max_dl}"
-        elif expires_at:
-            exp = "منقضی" if time.time() > expires_at else f"{int((expires_at - time.time()) / 3600)}h"
-        text += f"{status} `{key}` | 📁{category or 'other'} | {caption or '—'} | {exp}\n"
-    await target.reply_text(text, parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
