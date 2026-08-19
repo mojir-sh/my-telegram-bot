@@ -1219,8 +1219,8 @@ async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id if query else update.effective_user.id
-    if not await is_admin(user_id):
+    user = query.from_user if query else update.effective_user
+    if not await is_admin(user.id):
         return
 
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1235,14 +1235,29 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with db.execute("SELECT COUNT(*) FROM likes") as c:
             total_likes = (await c.fetchone())[0]
 
+        # ۵ فایل پرطرفدار
+        async with db.execute("""
+            SELECT key, caption, downloads FROM files 
+            WHERE is_active = 1 
+            ORDER BY downloads DESC LIMIT 5
+        """) as c:
+            top_files = await c.fetchall()
+
     text = (
         f"📊 <b>آمار کامل ربات</b>\n\n"
-        f"📁 فایل‌های فعال: <code>{active}</code>\n"
-        f"👥 کل کاربران: <code>{users}</code>\n"
-        f"📥 کل دانلودها: <code>{total_dl}</code>\n"
-        f"⭐ کل امتیازات: <code>{total_points}</code>\n"
-        f"❤️ کل لایک‌ها: <code>{total_likes}</code>"
+        f"📁 فایل فعال: <code>{active}</code>\n"
+        f"👥 کاربر: <code>{users}</code>\n"
+        f"📥 کل دانلود: <code>{total_dl}</code>\n"
+        f"⭐ کل امتیاز: <code>{total_points}</code>\n"
+        f"❤️ کل لایک: <code>{total_likes}</code>\n\n"
+        f"🏆 <b>۵ فایل پرطرفدار:</b>\n"
     )
+
+    if top_files:
+        for i, (key, caption, dl) in enumerate(top_files, 1):
+            text += f"{i}. {caption or key} → {dl} دانلود\n"
+    else:
+        text += "هنوز فایلی نیست.\n"
 
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
