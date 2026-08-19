@@ -279,6 +279,98 @@ async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user, extra_text=""):
         logger.error(f"خطا در اطلاع به مالک: {e}")
 
 
+# ==================== سیستم امتیاز و سطح ====================
+
+LEVELS = [
+    (0, "تازه‌وارد ۱"),
+    (10, "تازه‌وارد ۲"),
+    (30, "تازه‌وارد ۳"),
+    (70, "علاقه‌مند ۱"),
+    (120, "علاقه‌مند ۲"),
+    (180, "علاقه‌مند ۳"),
+    (270, "عضو فعال ۱"),
+    (380, "عضو فعال ۲"),
+    (500, "عضو فعال ۳"),
+    (700, "استاد ۱"),
+    (950, "استاد ۲"),
+    (1250, "استاد ۳"),
+    (1600, "استاد بزرگ"),
+    (2000, "افسانه‌ای"),
+]
+
+def get_level_info(points: int):
+    """بر اساس امتیاز، سطح فعلی و سطح بعدی را برمی‌گرداند"""
+    current_level = 1
+    current_name = LEVELS[0][1]
+    next_points = LEVELS[1][0] if len(LEVELS) > 1 else None
+    next_name = LEVELS[1][1] if len(LEVELS) > 1 else None
+
+    for i, (need, name) in enumerate(LEVELS):
+        if points >= need:
+            current_level = i + 1
+            current_name = name
+            if i + 1 < len(LEVELS):
+                next_points = LEVELS[i + 1][0]
+                next_name = LEVELS[i + 1][1]
+            else:
+                next_points = None
+                next_name = None
+        else:
+            break
+
+    return {
+        "level": current_level,
+        "name": current_name,
+        "next_points": next_points,
+        "next_name": next_name,
+        "points": points
+    }
+
+
+async def add_points(user_id: int, amount: int, context: ContextTypes.DEFAULT_TYPE = None):
+    """اضافه کردن امتیاز و بررسی ارتقا سطح"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # گرفتن امتیاز فعلی
+        async with db.execute("SELECT points, level FROM users WHERE user_id = ?", (user_id,)) as c:
+            row = await c.fetchone()
+
+        if not row:
+            return
+
+        old_points = row[0] or 0
+        old_level = row[1] or 1
+        new_points = min(old_points + amount, 2000)  # سقف ۲۰۰۰
+
+        # آپدیت امتیاز
+        await db.execute("UPDATE users SET points = ? WHERE user_id = ?", (new_points, user_id))
+        await db.commit()
+
+        # چک کردن سطح جدید
+        info = get_level_info(new_points)
+        new_level = info["level"]
+
+        if new_level > old_level:
+            await db.execute("UPDATE users SET level = ? WHERE user_id = ?", (new_level, user_id))
+            await db.commit()
+
+            # ارسال پیام تبریک
+            if context:
+                try:
+                    text = (
+                        f"🎉 تبریک!\n\n"
+                        f"به سطح **{info['name']}** ارتقا پیدا کردی!\n\n"
+                        f"امتیاز فعلی: {new_points}"
+                    )
+                    if info["next_points"]:
+                        text += f"\nتا سطح بعدی ({info['next_name']}) : {info['next_points'] - new_points} امتیاز مانده"
+                    else:
+                        text += "\n\n👑 تو به بالاترین سطح رسیدی!"
+
+                    await context.bot.send_message(chat_id=user_id, text=text)
+                except:
+                    pass
+
+
 async def get_file_keyboard(file_key: str) -> InlineKeyboardMarkup:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT downloads FROM files WHERE key = ?", (file_key,)) as c:
