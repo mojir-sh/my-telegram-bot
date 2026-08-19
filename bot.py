@@ -1448,21 +1448,26 @@ async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def list_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
+    query = update.callback_query
+    user_id = query.from_user.id if query else update.effective_user.id
     if not await is_super_admin(user_id):
         return
-    target = update.message or update.callback_query.message
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT user_id, is_super FROM admins") as cursor:
             rows = await cursor.fetchall()
 
-    text = f"👑 لیست ادمین‌ها:\n\n• `{OWNER_ID}` (مالک اصلی)\n"
+    text = f"👑 <b>لیست ادمین‌ها</b>\n\n• <code>{OWNER_ID}</code> (مالک اصلی)\n"
     for uid, is_super in rows:
         role = "سوپر ادمین" if is_super else "ادمین معمولی"
-        text += f"• `{uid}` → {role}\n"
-    text += "\n`/makesuper @user` برای ارتقا (فقط مالک)"
-    await target.reply_text(text, parse_mode="Markdown")
+        text += f"• <code>{uid}</code> → {role}\n"
+
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
+
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
