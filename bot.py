@@ -1772,64 +1772,78 @@ async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_super_admin(update.effective_user.id):
         return ConversationHandler.END
 
-    # اگر همراه دستور متن فرستاده
-    if context.args:
-        text = " ".join(context.args)
-        context.user_data["broadcast_type"] = "text"
-        context.user_data["broadcast_content"] = text
-    else:
-        await update.message.reply_text(
-            "برای برودکست:\n"
-            "• یا بنویس: /broadcast متن پیام\n"
-            "• یا اول یک عکس/ویدیو/فایل بفرست و بعد /broadcast را بزن"
-        )
-        return ConversationHandler.END
-
-    keyboard = [[
-        InlineKeyboardButton("✅ ارسال", callback_data="broadcast_yes"),
-        InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
-    ]]
     await update.message.reply_text(
-        f"این پیام ارسال شود؟\n\n{text}",
+        "📨 متن پیام برودکست را بنویسید:\n(یا /cancel برای لغو)"
+    )
+    return WAITING_BROADCAST_TEXT
+
+
+async def broadcast_receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if not text:
+        await update.message.reply_text("متن نمی‌تواند خالی باشد.")
+        return WAITING_BROADCAST_TEXT
+
+    context.user_data["broadcast_text"] = text
+    context.user_data["broadcast_type"] = "text"
+    context.user_data["broadcast_file_id"] = None
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📎 مدیا اضافه کن", callback_data="broadcast_add_media"),
+            InlineKeyboardButton("✅ فقط متن ارسال شود", callback_data="broadcast_yes")
+        ],
+        [InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")]
+    ]
+    await update.message.reply_text(
+        f"متن ذخیره شد:\n\n{text}\n\nآیا می‌خواهید مدیا هم اضافه کنید؟",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return WAITING_BROADCAST_CONFIRM
 
 
-async def broadcast_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """وقتی ادمین مدیا می‌فرستد برای برودکست"""
-    if not await is_super_admin(update.effective_user.id):
-        return
+async def broadcast_add_media_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("حالا عکس / ویدیو / فایل را ارسال کنید:")
+    return WAITING_BROADCAST_MEDIA
 
+
+async def broadcast_receive_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    context.user_data["broadcast_type"] = None
-    context.user_data["broadcast_file_id"] = None
-    context.user_data["broadcast_caption"] = msg.caption or ""
+    file_id = None
+    b_type = None
 
     if msg.photo:
-        context.user_data["broadcast_type"] = "photo"
-        context.user_data["broadcast_file_id"] = msg.photo[-1].file_id
+        file_id = msg.photo[-1].file_id
+        b_type = "photo"
     elif msg.video:
-        context.user_data["broadcast_type"] = "video"
-        context.user_data["broadcast_file_id"] = msg.video.file_id
+        file_id = msg.video.file_id
+        b_type = "video"
     elif msg.document:
-        context.user_data["broadcast_type"] = "document"
-        context.user_data["broadcast_file_id"] = msg.document.file_id
+        file_id = msg.document.file_id
+        b_type = "document"
     elif msg.animation:
-        context.user_data["broadcast_type"] = "animation"
-        context.user_data["broadcast_file_id"] = msg.animation.file_id
+        file_id = msg.animation.file_id
+        b_type = "animation"
     elif msg.audio:
-        context.user_data["broadcast_type"] = "audio"
-        context.user_data["broadcast_file_id"] = msg.audio.file_id
+        file_id = msg.audio.file_id
+        b_type = "audio"
     else:
-        return
+        await msg.reply_text("این نوع فایل پشتیبانی نمی‌شود. دوباره تلاش کنید.")
+        return WAITING_BROADCAST_MEDIA
 
-    keyboard = [[
-        InlineKeyboardButton("✅ ارسال به همه", callback_data="broadcast_yes"),
-        InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
-    ]]
+    context.user_data["broadcast_type"] = b_type
+    context.user_data["broadcast_file_id"] = file_id
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ ارسال نهایی", callback_data="broadcast_yes"),
+            InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
+        ]
+    ]
     await msg.reply_text(
-        "این مدیا به همه کاربران ارسال شود؟",
+        "مدیا دریافت شد.\nآیا ارسال نهایی انجام شود؟",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return WAITING_BROADCAST_CONFIRM
@@ -1844,34 +1858,34 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
 
-    await query.edit_message_text("در حال ارسال... لطفاً صبر کنید.")
+    if query.data == "broadcast_add_media":
+        return await broadcast_add_media_callback(update, context)
+
+    await query.edit_message_text("در حال ارسال برودکست... لطفاً صبر کنید.")
 
     b_type = context.user_data.get("broadcast_type", "text")
-    content = context.user_data.get("broadcast_content", "")
+    text = context.user_data.get("broadcast_text", "")
     file_id = context.user_data.get("broadcast_file_id")
-    caption = context.user_data.get("broadcast_caption", "")
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT user_id FROM users WHERE is_banned = 0") as cursor:
             users = await cursor.fetchall()
 
     success = fail = 0
-
     for (uid,) in users:
         try:
             if b_type == "text":
-                await context.bot.send_message(chat_id=uid, text=content)
+                await context.bot.send_message(chat_id=uid, text=text)
             elif b_type == "photo":
-                await context.bot.send_photo(chat_id=uid, photo=file_id, caption=caption)
+                await context.bot.send_photo(chat_id=uid, photo=file_id, caption=text)
             elif b_type == "video":
-                await context.bot.send_video(chat_id=uid, video=file_id, caption=caption)
+                await context.bot.send_video(chat_id=uid, video=file_id, caption=text)
             elif b_type == "document":
-                await context.bot.send_document(chat_id=uid, document=file_id, caption=caption)
+                await context.bot.send_document(chat_id=uid, document=file_id, caption=text)
             elif b_type == "animation":
-                await context.bot.send_animation(chat_id=uid, animation=file_id, caption=caption)
+                await context.bot.send_animation(chat_id=uid, animation=file_id, caption=text)
             elif b_type == "audio":
-                await context.bot.send_audio(chat_id=uid, audio=file_id, caption=caption)
-
+                await context.bot.send_audio(chat_id=uid, audio=file_id, caption=text)
             success += 1
             await asyncio.sleep(0.05)
         except Exception:
@@ -1879,11 +1893,10 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         OWNER_ID,
-        f"✅ برودکست تمام شد\nموفق: {success}\nناموفق: {fail}"
+        f"✅ برودکست تمام شد\nموفق: {success} | ناموفق: {fail}"
     )
     context.user_data.clear()
     return ConversationHandler.END
-
 
 async def daily_stats(context: ContextTypes.DEFAULT_TYPE):
     async with aiosqlite.connect(DB_PATH) as db:
