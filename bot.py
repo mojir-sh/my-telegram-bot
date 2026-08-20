@@ -2006,43 +2006,6 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    # مکالمه آپلود
-    upload_conv = ConversationHandler(
-        entry_points=[MessageHandler(
-            filters.Document.ALL | filters.VIDEO | filters.AUDIO |
-            filters.PHOTO | filters.VOICE | filters.ANIMATION,
-            add_file_start
-        )],
-        states={
-            WAITING_CAPTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_caption),
-                CommandHandler("skip", receive_caption),
-            ],
-            WAITING_CATEGORY: [
-                CallbackQueryHandler(receive_category, pattern="^(cat_|exp_cancel)"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_category),
-            ],
-            WAITING_EXPIRY_TYPE: [CallbackQueryHandler(receive_expiry_type)],
-            WAITING_EXPIRY_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_expiry_value)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
-    )
-
-    # مکالمه ویرایش
-    edit_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_callback, pattern="^edit_")],
-        states={
-            WAITING_EDIT_CAPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_caption)],
-            WAITING_EDIT_EXPIRY: [
-                CallbackQueryHandler(edit_callback, pattern="^edit_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_expiry_value),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
-    )
-
 # مکالمه آپلود
     upload_conv = ConversationHandler(
         entry_points=[MessageHandler(
@@ -2070,6 +2033,21 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     )
+
+    # مکالمه ویرایش
+    edit_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(edit_callback, pattern="^edit_")],
+        states={
+            WAITING_EDIT_CAPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_caption)],
+            WAITING_EDIT_EXPIRY: [
+                CallbackQueryHandler(edit_callback, pattern="^edit_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_expiry_value),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    )
+    
 
     broadcast_conv = ConversationHandler(
         entry_points=[CommandHandler("broadcast", broadcast_start)],
