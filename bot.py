@@ -1236,6 +1236,27 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update.effective_user.id):
+        return
+
+    if not context.args:
+        await update.message.reply_text("مثال: /del کد_فایل")
+        return
+
+    key = context.args[0]
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM files WHERE key = ?", (key,))
+        await db.commit()
+        deleted = cursor.rowcount
+
+    if deleted:
+        await update.message.reply_text(f"✅ فایل با کد <code>{key}</code> حذف شد.", parse_mode="HTML")
+    else:
+        await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
+
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = query.from_user if query else update.effective_user
