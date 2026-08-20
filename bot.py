@@ -2043,6 +2043,34 @@ def main():
         allow_reentry=True
     )
 
+# مکالمه آپلود
+    upload_conv = ConversationHandler(
+        entry_points=[MessageHandler(
+            filters.Document.ALL | filters.VIDEO | filters.AUDIO |
+            filters.PHOTO | filters.VOICE | filters.ANIMATION,
+            add_file_start
+        )],
+        states={
+            WAITING_CAPTION: [ ... ],
+            WAITING_CATEGORY: [ ... ],
+            WAITING_EXPIRY_TYPE: [ ... ],
+            WAITING_EXPIRY_VALUE: [ ... ],
+            # این دو تا جدید رو اضافه کن:
+            WAITING_BROADCAST_TEXT: [
+                MessageHandler(filters.TEXT & \~filters.COMMAND, broadcast_receive_text)
+            ],
+            WAITING_BROADCAST_MEDIA: [
+                MessageHandler(
+                    filters.PHOTO | filters.VIDEO | filters.Document.ALL | 
+                    filters.ANIMATION | filters.AUDIO,
+                    broadcast_receive_media
+                )
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    )
+
     broadcast_conv = ConversationHandler(
         entry_points=[CommandHandler("broadcast", broadcast_start)],
         states={
