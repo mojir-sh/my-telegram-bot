@@ -2098,10 +2098,6 @@ def main():
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment:"))
     app.add_handler(MessageHandler(filters.TEXT, receive_comment), group=1)
     
-    app.add_handler(MessageHandler(
-    filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.ANIMATION | filters.AUDIO,
-    broadcast_media
-), group=2)
 
     # تشخیص لفت دادن از کانال
     app.add_handler(ChatMemberHandler(on_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
