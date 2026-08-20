@@ -564,8 +564,6 @@ async def send_file_to_user(update, context, file_key, user):
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
             await db.execute("UPDATE users SET download_count = download_count + 1 WHERE user_id = ?", (user.id,))
             await db.commit()
-# ===== سیستم امتیاز =====
-        # ۱ امتیاز برای دانلود
             await add_points(user.id, 1, context)
 
         # بررسی پاداش دعوت (فقط برای اولین دانلود)
