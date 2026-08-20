@@ -2053,7 +2053,7 @@ def main():
         entry_points=[CommandHandler("broadcast", broadcast_start)],
         states={
             WAITING_BROADCAST_TEXT: [
-                MessageHandler(filters.TEXT & \~filters.COMMAND, broadcast_receive_text)
+                MessageHandler(filters.TEXT, broadcast_receive_text)
             ],
             WAITING_BROADCAST_MEDIA: [
                 MessageHandler(
