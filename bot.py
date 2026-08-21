@@ -673,7 +673,16 @@ async def add_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await notify_owner(context, user, "تلاش برای آپلود غیرمجاز")
         return ConversationHandler.END
 
+    await update.message.reply_text(
+        "📁 حالا فایل، عکس، ویدیو، گیف یا ویس را ارسال کنید:\n"
+        "(برای لغو: /cancel)"
+    )
+    return WAITING_FILE
+
+async def receive_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     msg = update.message
+
     file_id = file_type = None
     if msg.document:
         file_id, file_type = msg.document.file_id, "document"
@@ -689,8 +698,8 @@ async def add_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id, file_type = msg.animation.file_id, "animation"
 
     if not file_id:
-        await update.message.reply_text("فایل معتبری پیدا نشد.")
-        return ConversationHandler.END
+        await update.message.reply_text("فایل معتبری پیدا نشد. دوباره ارسال کنید یا /cancel بزنید.")
+        return WAITING_FILE
 
     context.user_data["upload"] = {
         "file_id": file_id,
@@ -1923,10 +1932,17 @@ def main():
 
     # مکالمه آپلود
     upload_conv = ConversationHandler(
-        entry_points=[CommandHandler("upload", add_file_start)]
+        entry_points=[CommandHandler("upload", add_file_start)],
         states={
+            WAITING_FILE: [
+                MessageHandler(
+                    filters.Document.ALL | filters.VIDEO | filters.AUDIO |
+                    filters.PHOTO | filters.VOICE | filters.ANIMATION,
+                    receive_file
+                )
+            ],
             WAITING_CAPTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_caption),
+                MessageHandler(filters.TEXT & \~filters.COMMAND, receive_caption),
                 CommandHandler("skip", receive_caption),
             ],
             WAITING_CATEGORY: [
