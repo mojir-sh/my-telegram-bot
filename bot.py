@@ -477,6 +477,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\n🔗 لینک دعوت اختصاصی تو:\n"
         f"{invite_link}\n\n"
         f"با دعوت دوستات می‌تونی امتیاز بگیری و سطحت رو بالا ببری!"
+        f"با استفاده از دستور /suggest میتونی به مالک ربات و کانال پیام بفرستی و نظراتت و پیشنهاداتت رو با اون در اشتراک بذاری."
+        f"یا یه تشکر ساده یا یه خسته نباشیدی، خدا قوتی، چیزی بهش بگی. خوشحال میشیم اگه باهامون ارتباط بگیری."
     )
 
     await update.message.reply_text(text)
@@ -1948,6 +1950,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📖 راهنمای کامل:
 
 /panel — پنل مدیریت
+/upload بارگذاری فایل
 /list — لیست فایل‌ها
 /del کد
 /edit کد — ویرایش فایل
