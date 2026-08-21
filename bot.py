@@ -2015,14 +2015,15 @@ def main():
             add_file_start
         )],
         states={
-            WAITING_CAPTION: [ ... ],
+            WAITING_CAPTION: [MessageHandler(filters.TEXT, receive_caption)],
             WAITING_CATEGORY: [ ... ],
             WAITING_EXPIRY_TYPE: [ ... ],
             WAITING_EXPIRY_VALUE: [ ... ],
             # این دو تا جدید رو اضافه کن:
             WAITING_BROADCAST_TEXT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_receive_text)
-            ],
+    MessageHandler(filters.TEXT, broadcast_receive_text),  # اول هر تکست
+    MessageHandler(filters.COMMAND, unknown_message),  # اگر /cancel یا هر کامند دیگه
+],
             WAITING_BROADCAST_MEDIA: [
                 MessageHandler(
                     filters.PHOTO | filters.VIDEO | filters.Document.ALL | 
