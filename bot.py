@@ -1882,28 +1882,84 @@ async def receive_broadcast_content(update: Update, context: ContextTypes.DEFAUL
 async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if query.data == "broadcast_no":
-        await query.edit_message_text("لغو شد.")
+        await query.edit_message_text("برودکست لغو شد.")
         context.user_data.clear()
         return ConversationHandler.END
 
-    text = context.user_data.get("broadcast_text", "")
-    await query.edit_message_text("در حال ارسال...")
+    data = context.user_data.get("broadcast")
+    if not data:
+        await query.edit_message_text("خطا: داده‌ای برای ارسال پیدا نشد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    await query.edit_message_text("در حال ارسال برودکست... لطفاً صبر کنید.")
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT user_id FROM users WHERE is_banned = 0") as cursor:
             users = await cursor.fetchall()
 
-    success = fail = 0
+    success = 0
+    fail = 0
+    b_type = data.get("type")
+
     for (uid,) in users:
         try:
-            await context.bot.send_message(chat_id=uid, text=text)
+            if b_type == "text":
+                await context.bot.send_message(chat_id=uid, text=data["content"])
+            elif b_type == "photo":
+                await context.bot.send_photo(
+                    chat_id=uid,
+                    photo=data["file_id"],
+                    caption=data.get("caption") or None
+                )
+            elif b_type == "video":
+                await context.bot.send_video(
+                    chat_id=uid,
+                    video=data["file_id"],
+                    caption=data.get("caption") or None
+                )
+            elif b_type == "animation":
+                await context.bot.send_animation(
+                    chat_id=uid,
+                    animation=data["file_id"],
+                    caption=data.get("caption") or None
+                )
+            elif b_type == "document":
+                await context.bot.send_document(
+                    chat_id=uid,
+                    document=data["file_id"],
+                    caption=data.get("caption") or None
+                )
+            elif b_type == "sticker":
+                await context.bot.send_sticker(chat_id=uid, sticker=data["file_id"])
+            elif b_type == "voice":
+                await context.bot.send_voice(
+                    chat_id=uid,
+                    voice=data["file_id"],
+                    caption=data.get("caption") or None
+                )
+            elif b_type == "audio":
+                await context.bot.send_audio(
+                    chat_id=uid,
+                    audio=data["file_id"],
+                    caption=data.get("caption") or None
+                )
+            else:
+                fail += 1
+                continue
+
             success += 1
             await asyncio.sleep(0.05)
-        except:
+        except Exception as e:
             fail += 1
+            logger.error(f"خطا در ارسال به {uid}: {e}")
 
-    await context.bot.send_message(OWNER_ID, f"✅ برودکست تمام شد\nموفق: {success} | ناموفق: {fail}")
+    await context.bot.send_message(
+        chat_id=OWNER_ID,
+        text=f"✅ برودکست تمام شد\nموفق: {success}\nناموفق: {fail}"
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
