@@ -19,6 +19,7 @@ from telegram.ext import (
     ChatMemberHandler,
     ContextTypes,
     filters,
+    ...
 )
 
 # ==================== تنظیمات ====================
@@ -283,17 +284,17 @@ async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user, extra_text=""):
 
 LEVELS = [
     (0, "تازه‌وارد ۱"),
-    (10, "تازه‌وارد ۲"),
-    (30, "تازه‌وارد ۳"),
-    (70, "علاقه‌مند ۱"),
-    (120, "علاقه‌مند ۲"),
-    (180, "علاقه‌مند ۳"),
-    (270, "عضو فعال ۱"),
-    (380, "عضو فعال ۲"),
-    (500, "عضو فعال ۳"),
-    (700, "استاد ۱"),
-    (950, "استاد ۲"),
-    (1250, "استاد ۳"),
+    (10, "علاقه‌مند ۱"),
+    (30, "علاقه‌مند ۲"),
+    (70, "عضو فعال ۱"),
+    (120, "عضو فعال ۲"),
+    (180, "خبره ۱"),
+    (270, "خبره ۲"),
+    (380, "خبره ۳"),
+    (500, "استاد ۱"),
+    (700, "استاد ۲"),
+    (950, "استاد ۳"),
+    (1250, "استاد تمام"),
     (1600, "استاد بزرگ"),
     (2000, "افسانه‌ای"),
 ]
@@ -2020,7 +2021,7 @@ def main():
             WAITING_EXPIRY_VALUE: [ ... ],
             # این دو تا جدید رو اضافه کن:
             WAITING_BROADCAST_TEXT: [
-                MessageHandler(filters.TEXT & \~filters.COMMAND, broadcast_receive_text)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_receive_text)
             ],
             WAITING_BROADCAST_MEDIA: [
                 MessageHandler(
