@@ -2051,26 +2051,6 @@ def main():
     )
     
 
-    broadcast_conv = ConversationHandler(
-        entry_points=[CommandHandler("broadcast", broadcast_start)],
-        states={
-            WAITING_BROADCAST_TEXT: [
-                MessageHandler(filters.TEXT, broadcast_receive_text)
-            ],
-            WAITING_BROADCAST_MEDIA: [
-                MessageHandler(
-                    filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.ANIMATION | filters.AUDIO,
-                    broadcast_receive_media
-                )
-            ],
-            WAITING_BROADCAST_CONFIRM: [
-                CallbackQueryHandler(broadcast_confirm, pattern="^broadcast_")
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
-    )
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join:"))
     app.add_handler(upload_conv)
