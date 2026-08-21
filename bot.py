@@ -1942,15 +1942,15 @@ def main():
                 )
             ],
             WAITING_CAPTION: [
-                MessageHandler(filters.TEXT & \~filters.COMMAND, receive_caption),
+                MessageHandler(filters.TEXT, receive_caption),
                 CommandHandler("skip", receive_caption),
             ],
             WAITING_CATEGORY: [
                 CallbackQueryHandler(receive_category, pattern="^(cat_|exp_cancel)"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_category),
+                MessageHandler(filters.TEXT, receive_custom_category),
             ],
             WAITING_EXPIRY_TYPE: [CallbackQueryHandler(receive_expiry_type)],
-            WAITING_EXPIRY_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_expiry_value)],
+            WAITING_EXPIRY_VALUE: [MessageHandler(filters.TEXT, receive_expiry_value)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
