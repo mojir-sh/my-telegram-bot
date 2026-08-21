@@ -31,7 +31,7 @@ DB_PATH = "data/bot.db"
 DEFAULT_CATEGORIES = ["comic", "duijin", "image set", "1th person", "other"]
 
 (WAITING_FILE, WAITING_CAPTION, WAITING_CATEGORY, WAITING_EXPIRY_TYPE, WAITING_EXPIRY_VALUE,
- WAITING_BROADCAST_CONFIRM, WAITING_EDIT_CAPTION, WAITING_EDIT_EXPIRY) = range(8)
+ WAITING_BROADCAST_CONFIRM, WAITING_EDIT_CAPTION, WAITING_EDIT_EXPIRY, WAITING_BROADCAST_CONTENT) = range(9)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -1780,16 +1780,100 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_super_admin(update.effective_user.id):
         return ConversationHandler.END
-    if not context.args:
-        await update.message.reply_text("مثال: /broadcast سلام به همه")
-        return ConversationHandler.END
-    text = " ".join(context.args)
-    context.user_data["broadcast_text"] = text
-    keyboard = [[
-        InlineKeyboardButton("✅ ارسال", callback_data="broadcast_yes"),
-        InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
-    ]]
-    await update.message.reply_text(f"این پیام ارسال شود؟\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    await update.message.reply_text(
+        "📨 حالا پیام یا مدیا را بفرستید:\n\n"
+        "• متن\n"
+        "• عکس\n"
+        "• ویدیو\n"
+        "• گیف\n"
+        "• فایل\n"
+        "• استیکر\n"
+        "• ویس\n\n"
+        "می‌توانید همراه مدیا کپشن هم بگذارید.\n"
+        "برای لغو: /cancel"
+    )
+    return WAITING_BROADCAST_CONTENT
+
+async def receive_broadcast_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+
+    if msg.text and not msg.text.startswith("/"):
+        context.user_data["broadcast"] = {
+            "type": "text",
+            "content": msg.text
+        }
+        preview = f"متن:\n\n{msg.text}"
+
+    elif msg.photo:
+        context.user_data["broadcast"] = {
+            "type": "photo",
+            "file_id": msg.photo[-1].file_id,
+            "caption": msg.caption or ""
+        }
+        preview = f"عکس\nکپشن: {msg.caption or 'بدون کپشن'}"
+
+    elif msg.video:
+        context.user_data["broadcast"] = {
+            "type": "video",
+            "file_id": msg.video.file_id,
+            "caption": msg.caption or ""
+        }
+        preview = f"ویدیو\nکپشن: {msg.caption or 'بدون کپشن'}"
+
+    elif msg.animation:
+        context.user_data["broadcast"] = {
+            "type": "animation",
+            "file_id": msg.animation.file_id,
+            "caption": msg.caption or ""
+        }
+        preview = f"گیف\nکپشن: {msg.caption or 'بدون کپشن'}"
+
+    elif msg.document:
+        context.user_data["broadcast"] = {
+            "type": "document",
+            "file_id": msg.document.file_id,
+            "caption": msg.caption or ""
+        }
+        preview = f"فایل\nکپشن: {msg.caption or 'بدون کپشن'}"
+
+    elif msg.sticker:
+        context.user_data["broadcast"] = {
+            "type": "sticker",
+            "file_id": msg.sticker.file_id
+        }
+        preview = "استیکر"
+
+    elif msg.voice:
+        context.user_data["broadcast"] = {
+            "type": "voice",
+            "file_id": msg.voice.file_id,
+            "caption": msg.caption or ""
+        }
+        preview = f"ویس\nکپشن: {msg.caption or 'بدون کپشن'}"
+
+    elif msg.audio:
+        context.user_data["broadcast"] = {
+            "type": "audio",
+            "file_id": msg.audio.file_id,
+            "caption": msg.caption or ""
+        }
+        preview = f"آهنگ\nکپشن: {msg.caption or 'بدون کپشن'}"
+
+    else:
+        await msg.reply_text("این نوع پیام پشتیبانی نمی‌شود.")
+        return WAITING_BROADCAST_CONTENT
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ ارسال به همه", callback_data="broadcast_yes"),
+            InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
+        ]
+    ]
+    await msg.reply_text(
+        f"پیش‌نمایش برودکست:\n\n{preview}\n\nآیا ارسال شود؟",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return WAITING_BROADCAST_CONFIRM
 
 
@@ -1972,8 +2056,20 @@ def main():
 
     broadcast_conv = ConversationHandler(
         entry_points=[CommandHandler("broadcast", broadcast_start)],
-        states={WAITING_BROADCAST_CONFIRM: [CallbackQueryHandler(broadcast_confirm)]},
-        fallbacks=[CommandHandler("cancel", cancel)]
+        states={
+            WAITING_BROADCAST_CONTENT: [
+                MessageHandler(
+                    filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION |
+                    filters.Document.ALL | filters.Sticker.ALL | filters.VOICE | filters.AUDIO,
+                    receive_broadcast_content
+                )
+            ],
+            WAITING_BROADCAST_CONFIRM: [
+                CallbackQueryHandler(broadcast_confirm, pattern="^broadcast_")
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
     )
 
     app.add_handler(CommandHandler("start", start))
