@@ -283,17 +283,17 @@ async def notify_owner(context: ContextTypes.DEFAULT_TYPE, user, extra_text=""):
 
 LEVELS = [
     (0, "تازه‌وارد ۱"),
-    (10, "علاقه‌مند ۱"),
-    (30, "علاقه‌مند ۲"),
-    (70, "عضو فعال ۱"),
-    (120, "عضو فعال ۲"),
-    (180, "خبره ۱"),
-    (270, "خبره ۲"),
-    (380, "خبره ۳"),
-    (500, "استاد ۱"),
-    (700, "استاد ۲"),
-    (950, "استاد ۳"),
-    (1250, "استاد تمام"),
+    (10, "تازه‌وارد ۲"),
+    (30, "تازه‌وارد ۳"),
+    (70, "علاقه‌مند ۱"),
+    (120, "علاقه‌مند ۲"),
+    (180, "علاقه‌مند ۳"),
+    (270, "عضو فعال ۱"),
+    (380, "عضو فعال ۲"),
+    (500, "عضو فعال ۳"),
+    (700, "استاد ۱"),
+    (950, "استاد ۲"),
+    (1250, "استاد ۳"),
     (1600, "استاد بزرگ"),
     (2000, "افسانه‌ای"),
 ]
@@ -564,6 +564,8 @@ async def send_file_to_user(update, context, file_key, user):
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
             await db.execute("UPDATE users SET download_count = download_count + 1 WHERE user_id = ?", (user.id,))
             await db.commit()
+# ===== سیستم امتیاز =====
+        # ۱ امتیاز برای دانلود
             await add_points(user.id, 1, context)
 
         # بررسی پاداش دعوت (فقط برای اولین دانلود)
@@ -1104,45 +1106,27 @@ async def receive_edit_expiry_value(update: Update, context: ContextTypes.DEFAUL
 # ==================== لیست کانال‌ها (درست‌شده) ====================
 async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user = query.from_user if query else update.effective_user
-
-    if not await is_super_admin(user.id):
-        if query:
-            await query.answer("دسترسی نداری.", show_alert=True)
-        else:
-            await update.message.reply_text("دسترسی نداری.")
+    user_id = query.from_user.id if query else update.effective_user.id
+    if not await is_super_admin(user_id):
         return
 
     channels = await get_required_channels()
-
     if not channels:
-        text = "📢 هیچ کانال اجباری‌ای تنظیم نشده است."
+        text = "هیچ کانال اجباری‌ای تنظیم نشده."
     else:
-        text = "📢 <b>کانال‌های اجباری عضویت</b>\n\n"
+        text = "📢 <b>کانال‌های اجباری</b>\n\n"
         for ch in channels:
             mode = ch.get("mode", "permanent")
-            username = ch.get("username", "نامشخص")
-
             if mode == "permanent":
-                status = "♾ دائمی"
+                extra = "♾ دائمی"
             elif mode == "downloads":
-                status = f"📥 حداکثر {ch.get('max', '?')} کاربر"
+                extra = f"📥 تا {ch.get('max', '?')} کاربر"
             elif mode == "time":
                 remaining = int((ch.get("expires_at", 0) - time.time()) / 3600)
-                if remaining > 0:
-                    status = f"⏰ {remaining} ساعت باقی‌مانده"
-                else:
-                    status = "❌ منقضی شده"
+                extra = f"⏰ {remaining} ساعت باقی‌مانده" if remaining > 0 else "منقضی شده"
             else:
-                status = str(mode)
-
-            text += f"• {username}\n   └ وضعیت: {status}\n\n"
-
-        text += "————————————\n"
-        text += "<code>/addchannel @channel permanent</code>\n"
-        text += "<code>/addchannel @channel downloads 500</code>\n"
-        text += "<code>/addchannel @channel time 3d</code>\n"
-        text += "<code>/removechannel @channel</code>"
+                extra = str(mode)
+            text += f"• {ch['username']} → {extra}\n"
 
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
@@ -1150,7 +1134,6 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     else:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-
 
 # ==================== تشخیص لفت دادن ====================
 async def on_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1187,24 +1170,14 @@ async def on_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
 # ==================== بقیه دستورات ====================
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user = query.from_user if query else update.effective_user
-    if not await is_admin(user.id):
+    user_id = query.from_user.id if query else update.effective_user.id
+    if not await is_admin(user_id):
         return
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
-            SELECT 
-                f.key, 
-                f.caption, 
-                f.category, 
-                f.downloads, 
-                f.max_downloads, 
-                f.expires_at, 
-                f.is_active,
-                (SELECT COUNT(*) FROM likes WHERE file_key = f.key) as like_count
-            FROM files f
-            ORDER BY f.created_at DESC
-            LIMIT 40
+            SELECT key, caption, category, downloads, max_downloads, expires_at, is_active
+            FROM files ORDER BY created_at DESC LIMIT 30
         """) as cursor:
             rows = await cursor.fetchall()
 
@@ -1212,68 +1185,36 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "هیچ فایلی وجود ندارد."
     else:
         text = "📋 <b>آخرین فایل‌ها</b>\n\n"
-        for row in rows:
-            key, caption, category, downloads, max_dl, expires_at, is_active, likes = row
-
+        for key, caption, category, downloads, max_dl, expires_at, is_active in rows:
             status = "✅" if is_active else "❌"
-            
-            # وضعیت انقضا
+            exp = "دائمی"
             if max_dl is not None:
                 exp = f"{downloads}/{max_dl}"
             elif expires_at:
-                remaining = int((expires_at - time.time()) / 3600)
-                exp = "منقضی" if remaining <= 0 else f"{remaining}h"
-            else:
-                exp = "دائمی"
-
-            text += (
-                f"{status} <code>{key}</code>\n"
-                f"   📁 {category or 'other'} | {caption or '—'}\n"
-                f"   📥 {downloads} دانلود | ❤️ {likes} لایک | {exp}\n\n"
-            )
+                exp = "منقضی" if time.time() > expires_at else f"{int((expires_at - time.time()) / 3600)}h"
+            text += f"{status} <code>{key}</code> | {category or 'other'} | {caption or '—'} | {exp}\n"
 
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
     if query:
-        try:
-            await query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="HTML"
-            )
-        except Exception:
-            await query.message.reply_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="HTML"
-            )
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     else:
-        await update.message.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
-        )
-
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
-
     if not context.args:
         await update.message.reply_text("مثال: /del کد_فایل")
         return
-
     key = context.args[0]
-
     async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("DELETE FROM files WHERE key = ?", (key,))
+        cur = await db.execute("DELETE FROM files WHERE key = ?", (key,))
         await db.commit()
-        deleted = cursor.rowcount
-
-    if deleted:
-        await update.message.reply_text(f"✅ فایل با کد <code>{key}</code> حذف شد.", parse_mode="HTML")
-    else:
-        await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
+        if cur.rowcount:
+            await update.message.reply_text(f"✅ فایل `{key}` حذف شد.", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("❌ پیدا نشد.")
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1768,6 +1709,51 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await list_channels(update, context)
 
 
+async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_super_admin(update.effective_user.id):
+        return ConversationHandler.END
+    if not context.args:
+        await update.message.reply_text("مثال: /broadcast سلام به همه")
+        return ConversationHandler.END
+    text = " ".join(context.args)
+    context.user_data["broadcast_text"] = text
+    keyboard = [[
+        InlineKeyboardButton("✅ ارسال", callback_data="broadcast_yes"),
+        InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
+    ]]
+    await update.message.reply_text(f"این پیام ارسال شود؟\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard))
+    return WAITING_BROADCAST_CONFIRM
+
+
+async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "broadcast_no":
+        await query.edit_message_text("لغو شد.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    text = context.user_data.get("broadcast_text", "")
+    await query.edit_message_text("در حال ارسال...")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM users WHERE is_banned = 0") as cursor:
+            users = await cursor.fetchall()
+
+    success = fail = 0
+    for (uid,) in users:
+        try:
+            await context.bot.send_message(chat_id=uid, text=text)
+            success += 1
+            await asyncio.sleep(0.05)
+        except:
+            fail += 1
+
+    await context.bot.send_message(OWNER_ID, f"✅ برودکست تمام شد\nموفق: {success} | ناموفق: {fail}")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
 async def daily_stats(context: ContextTypes.DEFAULT_TYPE):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -1876,7 +1862,7 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-# مکالمه آپلود
+    # مکالمه آپلود
     upload_conv = ConversationHandler(
         entry_points=[MessageHandler(
             filters.Document.ALL | filters.VIDEO | filters.AUDIO |
@@ -1885,15 +1871,15 @@ def main():
         )],
         states={
             WAITING_CAPTION: [
-                MessageHandler(filters.TEXT, receive_caption),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_caption),
                 CommandHandler("skip", receive_caption),
             ],
             WAITING_CATEGORY: [
                 CallbackQueryHandler(receive_category, pattern="^(cat_|exp_cancel)"),
-                MessageHandler(filters.TEXT & \~filters.COMMAND, receive_custom_category),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_category),
             ],
             WAITING_EXPIRY_TYPE: [CallbackQueryHandler(receive_expiry_type)],
-            WAITING_EXPIRY_VALUE: [MessageHandler(filters.TEXT & \~filters.COMMAND, receive_expiry_value)],
+            WAITING_EXPIRY_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_expiry_value)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
@@ -1912,7 +1898,12 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     )
-    
+
+    broadcast_conv = ConversationHandler(
+        entry_points=[CommandHandler("broadcast", broadcast_start)],
+        states={WAITING_BROADCAST_CONFIRM: [CallbackQueryHandler(broadcast_confirm)]},
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join:"))
@@ -1948,7 +1939,6 @@ def main():
     app.add_handler(CallbackQueryHandler(like_callback, pattern="^like:"))
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment:"))
     app.add_handler(MessageHandler(filters.TEXT, receive_comment), group=1)
-    
 
     # تشخیص لفت دادن از کانال
     app.add_handler(ChatMemberHandler(on_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
@@ -1969,4 +1959,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
