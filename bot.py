@@ -1106,27 +1106,45 @@ async def receive_edit_expiry_value(update: Update, context: ContextTypes.DEFAUL
 # ==================== لیست کانال‌ها (درست‌شده) ====================
 async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id if query else update.effective_user.id
-    if not await is_super_admin(user_id):
+    user = query.from_user if query else update.effective_user
+
+    if not await is_super_admin(user.id):
+        if query:
+            await query.answer("دسترسی نداری.", show_alert=True)
+        else:
+            await update.message.reply_text("دسترسی نداری.")
         return
 
     channels = await get_required_channels()
+
     if not channels:
-        text = "هیچ کانال اجباری‌ای تنظیم نشده."
+        text = "📢 هیچ کانال اجباری‌ای تنظیم نشده است."
     else:
-        text = "📢 <b>کانال‌های اجباری</b>\n\n"
+        text = "📢 <b>کانال‌های اجباری عضویت</b>\n\n"
         for ch in channels:
             mode = ch.get("mode", "permanent")
+            username = ch.get("username", "نامشخص")
+
             if mode == "permanent":
-                extra = "♾ دائمی"
+                status = "♾ دائمی"
             elif mode == "downloads":
-                extra = f"📥 تا {ch.get('max', '?')} کاربر"
+                status = f"📥 حداکثر {ch.get('max', '?')} کاربر"
             elif mode == "time":
                 remaining = int((ch.get("expires_at", 0) - time.time()) / 3600)
-                extra = f"⏰ {remaining} ساعت باقی‌مانده" if remaining > 0 else "منقضی شده"
+                if remaining > 0:
+                    status = f"⏰ {remaining} ساعت باقی‌مانده"
+                else:
+                    status = "❌ منقضی شده"
             else:
-                extra = str(mode)
-            text += f"• {ch['username']} → {extra}\n"
+                status = str(mode)
+
+            text += f"• {username}\n   └ وضعیت: {status}\n\n"
+
+        text += "————————————\n"
+        text += "<code>/addchannel @channel permanent</code>\n"
+        text += "<code>/addchannel @channel downloads 500</code>\n"
+        text += "<code>/addchannel @channel time 3d</code>\n"
+        text += "<code>/removechannel @channel</code>"
 
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
