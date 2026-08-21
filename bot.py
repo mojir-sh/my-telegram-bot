@@ -1629,19 +1629,35 @@ async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_super = await is_super_admin(update.effective_user.id)
     active_files, total_users, total_downloads, total_points = await get_quick_stats()
 
+    # آمار امروز
+    now = time.time()
+    today_start = now - (now % 86400)
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM download_logs WHERE downloaded_at >= ?", (today_start,)
+        ) as c:
+            today_downloads = (await c.fetchone())[0] or 0
+        async with db.execute(
+            "SELECT COUNT(*) FROM users WHERE first_seen >= ?", (today_start,)
+        ) as c:
+            new_users = (await c.fetchone())[0] or 0
+
     text = (
         f"🎛 <b>پنل مدیریت پیشرفته</b>\n\n"
-        f"📊 <b>آمار لحظه‌ای</b>\n"
+        f"📊 <b>آمار کلی</b>\n"
         f"├ 📁 فایل فعال: <code>{active_files}</code>\n"
-        f"├ 👥 کاربر: <code>{total_users}</code>\n"
+        f"├ 👥 کل کاربران: <code>{total_users}</code>\n"
         f"├ 📥 کل دانلود: <code>{total_downloads}</code>\n"
-        f"└ ⭐ کل امتیاز: <code>{total_points}</code>\n"
+        f"└ ⭐ کل امتیاز: <code>{total_points}</code>\n\n"
+        f"📅 <b>آمار امروز</b>\n"
+        f"├ 📥 دانلود امروز: <code>{today_downloads}</code>\n"
+        f"└ 🆕 کاربر جدید: <code>{new_users}</code>"
     )
 
     keyboard = [
         [
-            InlineKeyboardButton("📁 مدیریت فایل‌ها", callback_data="panel_files"),
-            InlineKeyboardButton("👥 مدیریت کاربران", callback_data="panel_users")
+            InlineKeyboardButton("📁 فایل‌ها", callback_data="panel_files"),
+            InlineKeyboardButton("👥 کاربران", callback_data="panel_users")
         ],
         [
             InlineKeyboardButton("📈 آمار کامل", callback_data="panel_stats"),
@@ -1684,18 +1700,33 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------- بازگشت به پنل اصلی ----------
     if data == "panel_back":
         active_files, total_users, total_downloads, total_points = await get_quick_stats()
+        now = time.time()
+        today_start = now - (now % 86400)
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM download_logs WHERE downloaded_at >= ?", (today_start,)
+            ) as c:
+                today_downloads = (await c.fetchone())[0] or 0
+            async with db.execute(
+                "SELECT COUNT(*) FROM users WHERE first_seen >= ?", (today_start,)
+            ) as c:
+                new_users = (await c.fetchone())[0] or 0
+
         text = (
             f"🎛 <b>پنل مدیریت پیشرفته</b>\n\n"
-            f"📊 <b>آمار لحظه‌ای</b>\n"
+            f"📊 <b>آمار کلی</b>\n"
             f"├ 📁 فایل فعال: <code>{active_files}</code>\n"
-            f"├ 👥 کاربر: <code>{total_users}</code>\n"
+            f"├ 👥 کل کاربران: <code>{total_users}</code>\n"
             f"├ 📥 کل دانلود: <code>{total_downloads}</code>\n"
-            f"└ ⭐ کل امتیاز: <code>{total_points}</code>\n"
+            f"└ ⭐ کل امتیاز: <code>{total_points}</code>\n\n"
+            f"📅 <b>آمار امروز</b>\n"
+            f"├ 📥 دانلود امروز: <code>{today_downloads}</code>\n"
+            f"└ 🆕 کاربر جدید: <code>{new_users}</code>"
         )
         keyboard = [
             [
-                InlineKeyboardButton("📁 مدیریت فایل‌ها", callback_data="panel_files"),
-                InlineKeyboardButton("👥 مدیریت کاربران", callback_data="panel_users")
+                InlineKeyboardButton("📁 فایل‌ها", callback_data="panel_files"),
+                InlineKeyboardButton("👥 کاربران", callback_data="panel_users")
             ],
             [
                 InlineKeyboardButton("📈 آمار کامل", callback_data="panel_stats"),
@@ -1765,7 +1796,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------- برودکست ----------
     if data == "panel_broadcast":
         await query.edit_message_text(
-            "📨 برای ارسال پیام همگانی بنویس:\n<code>/broadcast متن پیام</code>",
+            "📨 برای شروع برودکست دستور زیر را بزنید:\n\n<code>/broadcast</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_back")]])
         )
@@ -1776,14 +1807,18 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await list_admins(update, context)
         return
 
-    # ---------- اکشن‌های سریع ----------
+    # ---------- اکشن‌های واقعی ----------
     if data == "do_list":
         await list_files(update, context)
         return
 
+    elif data == "do_channels":
+        await list_channels(update, context)
+        return
+
     elif data == "do_searchfile":
         await query.edit_message_text(
-            "🔍 کلمه مورد نظر را بنویسید:\n<code>/searchfile کلمه</code>",
+            "🔍 کلمه مورد نظر را با دستور زیر جستجو کنید:\n\n<code>/searchfile کلمه</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_files")]])
         )
@@ -1791,7 +1826,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "do_del":
         await query.edit_message_text(
-            "🗑 کد فایل را بنویسید:\n<code>/del کد_فایل</code>",
+            "🗑 کد فایل را با دستور زیر وارد کنید:\n\n<code>/del کد_فایل</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_files")]])
         )
@@ -1799,7 +1834,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "do_searchuser":
         await query.edit_message_text(
-            "🔍 نام یا یوزرنیم را بنویسید:\n<code>/searchuser نام یا @username</code>",
+            "🔍 نام یا یوزرنیم را با دستور زیر جستجو کنید:\n\n<code>/searchuser نام یا @username</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
         )
@@ -1807,7 +1842,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "do_ban":
         await query.edit_message_text(
-            "🚫 یوزرنیم یا آیدی را بنویسید:\n<code>/ban @user یا آیدی</code>",
+            "🚫 کاربر را با دستور زیر بن کنید:\n\n<code>/ban @user یا آیدی</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
         )
@@ -1815,14 +1850,10 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "do_unban":
         await query.edit_message_text(
-            "✅ یوزرنیم یا آیدی را بنویسید:\n<code>/unban @user یا آیدی</code>",
+            "✅ کاربر را با دستور زیر آنبن کنید:\n\n<code>/unban @user یا آیدی</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
         )
-        return
-
-    elif data == "do_channels":
-        await list_channels(update, context)
         return
 
 
