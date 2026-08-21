@@ -1885,7 +1885,7 @@ def main():
         )],
         states={
             WAITING_CAPTION: [
-                MessageHandler(filters.TEXT & \~filters.COMMAND, receive_caption),
+                MessageHandler(filters.TEXT, receive_caption),
                 CommandHandler("skip", receive_caption),
             ],
             WAITING_CATEGORY: [
