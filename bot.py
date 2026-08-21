@@ -30,9 +30,8 @@ DB_PATH = "data/bot.db"
 
 DEFAULT_CATEGORIES = ["comic", "duijin", "image set", "1th person", "other"]
 
-(WAITING_CAPTION, WAITING_CATEGORY, WAITING_EXPIRY_TYPE, WAITING_EXPIRY_VALUE,
- WAITING_BROADCAST_CONFIRM, WAITING_EDIT_CAPTION, WAITING_EDIT_EXPIRY,
- WAITING_BROADCAST_CONTENT) = range(8)
+(WAITING_FILE, WAITING_CAPTION, WAITING_CATEGORY, WAITING_EXPIRY_TYPE, WAITING_EXPIRY_VALUE,
+ WAITING_BROADCAST_CONFIRM, WAITING_EDIT_CAPTION, WAITING_EDIT_EXPIRY) = range(8)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -1772,155 +1771,44 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_super_admin(update.effective_user.id):
         return ConversationHandler.END
-
-    await update.message.reply_text(
-        "📨 حالا پیام یا مدیا را بفرستید:\n\n"
-        "• متن\n"
-        "• عکس\n"
-        "• ویدیو\n"
-        "• گیف\n"
-        "• فایل\n"
-        "• استیکر\n\n"
-        "می‌توانید همراه مدیا کپشن هم بگذارید.\n"
-        "برای لغو: /cancel"
-    )
-    return WAITING_BROADCAST_CONTENT
-
-
-async def broadcast_receive_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    context.user_data["broadcast"] = {}
-
-    if msg.text and not msg.text.startswith("/"):
-        context.user_data["broadcast"] = {
-            "type": "text",
-            "content": msg.text
-        }
-        preview = f"متن:\n\n{msg.text}"
-
-    elif msg.photo:
-        context.user_data["broadcast"] = {
-            "type": "photo",
-            "file_id": msg.photo[-1].file_id,
-            "caption": msg.caption or ""
-        }
-        preview = "عکس" + (f"\nکپشن: {msg.caption}" if msg.caption else "")
-
-    elif msg.video:
-        context.user_data["broadcast"] = {
-            "type": "video",
-            "file_id": msg.video.file_id,
-            "caption": msg.caption or ""
-        }
-        preview = "ویدیو" + (f"\nکپشن: {msg.caption}" if msg.caption else "")
-
-    elif msg.animation:
-        context.user_data["broadcast"] = {
-            "type": "animation",
-            "file_id": msg.animation.file_id,
-            "caption": msg.caption or ""
-        }
-        preview = "گیف" + (f"\nکپشن: {msg.caption}" if msg.caption else "")
-
-    elif msg.document:
-        context.user_data["broadcast"] = {
-            "type": "document",
-            "file_id": msg.document.file_id,
-            "caption": msg.caption or ""
-        }
-        preview = "فایل" + (f"\nکپشن: {msg.caption}" if msg.caption else "")
-
-    elif msg.sticker:
-        context.user_data["broadcast"] = {
-            "type": "sticker",
-            "file_id": msg.sticker.file_id
-        }
-        preview = "استیکر"
-
-    elif msg.voice:
-        context.user_data["broadcast"] = {
-            "type": "voice",
-            "file_id": msg.voice.file_id,
-            "caption": msg.caption or ""
-        }
-        preview = "ویس" + (f"\nکپشن: {msg.caption}" if msg.caption else "")
-
-    elif msg.audio:
-        context.user_data["broadcast"] = {
-            "type": "audio",
-            "file_id": msg.audio.file_id,
-            "caption": msg.caption or ""
-        }
-        preview = "آهنگ" + (f"\nکپشن: {msg.caption}" if msg.caption else "")
-
-    else:
-        await msg.reply_text("این نوع پیام پشتیبانی نمی‌شود. دوباره تلاش کنید یا /cancel بزنید.")
-        return WAITING_BROADCAST_CONTENT
-
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ ارسال به همه", callback_data="broadcast_yes"),
-            InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
-        ]
-    ]
-    await msg.reply_text(
-        f"پیش‌نمایش برودکست:\n\n{preview}\n\nآیا ارسال شود؟",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    if not context.args:
+        await update.message.reply_text("مثال: /broadcast سلام به همه")
+        return ConversationHandler.END
+    text = " ".join(context.args)
+    context.user_data["broadcast_text"] = text
+    keyboard = [[
+        InlineKeyboardButton("✅ ارسال", callback_data="broadcast_yes"),
+        InlineKeyboardButton("❌ لغو", callback_data="broadcast_no")
+    ]]
+    await update.message.reply_text(f"این پیام ارسال شود؟\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard))
     return WAITING_BROADCAST_CONFIRM
 
 
 async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.data == "broadcast_no":
-        await query.edit_message_text("برودکست لغو شد.")
+        await query.edit_message_text("لغو شد.")
         context.user_data.clear()
         return ConversationHandler.END
 
-    data = context.user_data.get("broadcast")
-    if not data:
-        await query.edit_message_text("خطا: داده‌ای پیدا نشد.")
-        return ConversationHandler.END
-
-    await query.edit_message_text("در حال ارسال برودکست... لطفاً صبر کنید.")
+    text = context.user_data.get("broadcast_text", "")
+    await query.edit_message_text("در حال ارسال...")
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT user_id FROM users WHERE is_banned = 0") as cursor:
             users = await cursor.fetchall()
 
     success = fail = 0
-    b_type = data["type"]
-
     for (uid,) in users:
         try:
-            if b_type == "text":
-                await context.bot.send_message(chat_id=uid, text=data["content"])
-            elif b_type == "photo":
-                await context.bot.send_photo(chat_id=uid, photo=data["file_id"], caption=data.get("caption"))
-            elif b_type == "video":
-                await context.bot.send_video(chat_id=uid, video=data["file_id"], caption=data.get("caption"))
-            elif b_type == "animation":
-                await context.bot.send_animation(chat_id=uid, animation=data["file_id"], caption=data.get("caption"))
-            elif b_type == "document":
-                await context.bot.send_document(chat_id=uid, document=data["file_id"], caption=data.get("caption"))
-            elif b_type == "sticker":
-                await context.bot.send_sticker(chat_id=uid, sticker=data["file_id"])
-            elif b_type == "voice":
-                await context.bot.send_voice(chat_id=uid, voice=data["file_id"], caption=data.get("caption"))
-            elif b_type == "audio":
-                await context.bot.send_audio(chat_id=uid, audio=data["file_id"], caption=data.get("caption"))
-
+            await context.bot.send_message(chat_id=uid, text=text)
             success += 1
-            await asyncio.sleep(0.04)
-        except Exception:
+            await asyncio.sleep(0.05)
+        except:
             fail += 1
 
-    await context.bot.send_message(
-        OWNER_ID,
-        f"✅ برودکست تمام شد\nموفق: {success}\nناموفق: {fail}"
-    )
+    await context.bot.send_message(OWNER_ID, f"✅ برودکست تمام شد\nموفق: {success} | ناموفق: {fail}")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -2035,11 +1923,7 @@ def main():
 
     # مکالمه آپلود
     upload_conv = ConversationHandler(
-        entry_points=[MessageHandler(
-            filters.Document.ALL | filters.VIDEO | filters.AUDIO |
-            filters.PHOTO | filters.VOICE | filters.ANIMATION,
-            add_file_start
-        )],
+        entry_points=[CommandHandler("upload", add_file_start)]
         states={
             WAITING_CAPTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_caption),
@@ -2072,21 +1956,16 @@ def main():
 
     broadcast_conv = ConversationHandler(
         entry_points=[CommandHandler("broadcast", broadcast_start)],
-        states={
-            WAITING_BROADCAST_CONTENT: [
-                MessageHandler(
-                    filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION |
-                    filters.Document.ALL | filters.Sticker.ALL | filters.VOICE | filters.AUDIO,
-                    broadcast_receive_content
-                )
-            ],
-            WAITING_BROADCAST_CONFIRM: [
-                CallbackQueryHandler(broadcast_confirm, pattern="^broadcast_")
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
+        states={WAITING_BROADCAST_CONFIRM: [CallbackQueryHandler(broadcast_confirm)]},
+        fallbacks=[CommandHandler("cancel", cancel)]
     )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join:"))
+    app.add_handler(upload_conv)
+    app.add_handler(CommandHandler("edit", edit_file_start))
+    app.add_handler(edit_conv)
+    app.add_handler(broadcast_conv)
 
     app.add_handler(CommandHandler("panel", panel))
     app.add_handler(CallbackQueryHandler(panel_callback, pattern="^panel_"))
