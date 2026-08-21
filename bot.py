@@ -1800,6 +1800,10 @@ async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_broadcast_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
 
+    # اگر دستور بود، نادیده بگیر (تا /cancel کار کنه)
+    if msg.text and msg.text.startswith("/"):
+        return WAITING_BROADCAST_CONTENT
+
     if msg.text and not msg.text.startswith("/"):
         context.user_data["broadcast"] = {
             "type": "text",
@@ -2117,12 +2121,13 @@ def main():
         entry_points=[CommandHandler("broadcast", broadcast_start)],
         states={
             WAITING_BROADCAST_CONTENT: [
-                MessageHandler(
-                    filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION |
-                    filters.Document.ALL | filters.Sticker.ALL | filters.VOICE | filters.AUDIO,
-                    receive_broadcast_content
-                )
-            ],
+    MessageHandler(
+        filters.PHOTO | filters.VIDEO | filters.ANIMATION |
+        filters.Document.ALL | filters.Sticker.ALL | filters.VOICE | filters.AUDIO,
+        receive_broadcast_content
+    ),
+    MessageHandler(filters.TEXT, receive_broadcast_content),
+],
             WAITING_BROADCAST_CONFIRM: [
                 CallbackQueryHandler(broadcast_confirm, pattern="^broadcast_")
             ],
