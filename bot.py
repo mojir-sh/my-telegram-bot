@@ -1170,14 +1170,24 @@ async def on_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
 # ==================== بقیه دستورات ====================
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id if query else update.effective_user.id
-    if not await is_admin(user_id):
+    user = query.from_user if query else update.effective_user
+    if not await is_admin(user.id):
         return
 
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
-            SELECT key, caption, category, downloads, max_downloads, expires_at, is_active
-            FROM files ORDER BY created_at DESC LIMIT 30
+            SELECT 
+                f.key, 
+                f.caption, 
+                f.category, 
+                f.downloads, 
+                f.max_downloads, 
+                f.expires_at, 
+                f.is_active,
+                (SELECT COUNT(*) FROM likes WHERE file_key = f.key) as like_count
+            FROM files f
+            ORDER BY f.created_at DESC
+            LIMIT 40
         """) as cursor:
             rows = await cursor.fetchall()
 
@@ -1185,36 +1195,67 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "هیچ فایلی وجود ندارد."
     else:
         text = "📋 <b>آخرین فایل‌ها</b>\n\n"
-        for key, caption, category, downloads, max_dl, expires_at, is_active in rows:
+        for row in rows:
+            key, caption, category, downloads, max_dl, expires_at, is_active, likes = row
+
             status = "✅" if is_active else "❌"
-            exp = "دائمی"
+            
+            # وضعیت انقضا
             if max_dl is not None:
                 exp = f"{downloads}/{max_dl}"
             elif expires_at:
-                exp = "منقضی" if time.time() > expires_at else f"{int((expires_at - time.time()) / 3600)}h"
-            text += f"{status} <code>{key}</code> | {category or 'other'} | {caption or '—'} | {exp}\n"
+                remaining = int((expires_at - time.time()) / 3600)
+                exp = "منقضی" if remaining <= 0 else f"{remaining}h"
+            else:
+                exp = "دائمی"
+
+            text += (
+                f"{status} <code>{key}</code>\n"
+                f"   📁 {category or 'other'} | {caption or '—'}\n"
+                f"   📥 {downloads} دانلود | ❤️ {likes} لایک | {exp}\n\n"
+            )
 
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="panel_back")]]
 
     if query:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
+            )
+        except Exception:
+            await query.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
+            )
     else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
 
 async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
+
     if not context.args:
         await update.message.reply_text("مثال: /del کد_فایل")
         return
+
     key = context.args[0]
+
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("DELETE FROM files WHERE key = ?", (key,))
+        cursor = await db.execute("DELETE FROM files WHERE key = ?", (key,))
         await db.commit()
-        if cur.rowcount:
-            await update.message.reply_text(f"✅ فایل `{key}` حذف شد.", parse_mode="Markdown")
-        else:
-            await update.message.reply_text("❌ پیدا نشد.")
+        deleted = cursor.rowcount
+
+    if deleted:
+        await update.message.reply_text(f"✅ فایل با کد <code>{key}</code> حذف شد.", parse_mode="HTML")
+    else:
+        await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
