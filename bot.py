@@ -19,7 +19,6 @@ from telegram.ext import (
     ChatMemberHandler,
     ContextTypes,
     filters,
-    ...
 )
 
 # ==================== تنظیمات ====================
