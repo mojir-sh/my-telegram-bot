@@ -194,6 +194,22 @@ def check_rate_limit(user_id: int) -> tuple[bool, int]:
     return True, 0
 
 
+async def log_admin_action(context: ContextTypes.DEFAULT_TYPE, admin, action: str):
+    """هر کاری که ادمین انجام می‌دهد به مالک اطلاع می‌دهد"""
+    try:
+        username = f"@{admin.username}" if admin.username else "بدون یوزرنیم"
+        text = (
+            f"🛡️ گزارش ادمین\n\n"
+            f"👤 ادمین: {admin.full_name}\n"
+            f"🔗 {username}\n"
+            f"🆔 {admin.id}\n\n"
+            f"📝 اقدام: {action}"
+        )
+        await context.bot.send_message(chat_id=OWNER_ID, text=text)
+    except Exception as e:
+        logger.error(f"خطا در لاگ ادمین: {e}")
+
+
 async def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
@@ -871,6 +887,7 @@ async def save_file(update, context):
             data.get("max_downloads"),
             data.get("expires_at")
         ))
+        await log_admin_action(context, update.effective_user if update.effective_user else update.callback_query.from_user, f"آپلود فایل جدید با کد `{key}`")
         await db.commit()
 
     bot_username = (await context.bot.get_me()).username
@@ -953,6 +970,7 @@ async def edit_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+    
 
 
 async def edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1285,6 +1303,7 @@ async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ فایل با کد <code>{key}</code> حذف شد.", parse_mode="HTML")
     else:
         await update.message.reply_text("❌ فایلی با این کد پیدا نشد.")
+        await log_admin_action(context, update.effective_user, f"حذف فایل `{key}`")
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1745,38 +1764,51 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------- اکشن‌های سریع ----------
     if data == "do_list":
         await list_files(update, context)
+        return
+
     elif data == "do_searchfile":
         await query.edit_message_text(
-            "🔍 بنویس:\n<code>/searchfile کلمه</code>",
+            "🔍 کلمه مورد نظر را بنویسید:\n<code>/searchfile کلمه</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_files")]])
         )
+        return
+
     elif data == "do_del":
         await query.edit_message_text(
-            "🗑 بنویس:\n<code>/del کد_فایل</code>",
+            "🗑 کد فایل را بنویسید:\n<code>/del کد_فایل</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_files")]])
         )
+        return
+
     elif data == "do_searchuser":
         await query.edit_message_text(
-            "🔍 بنویس:\n<code>/searchuser نام یا @username</code>",
+            "🔍 نام یا یوزرنیم را بنویسید:\n<code>/searchuser نام یا @username</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
         )
+        return
+
     elif data == "do_ban":
         await query.edit_message_text(
-            "🚫 بنویس:\n<code>/ban @user یا آیدی</code>",
+            "🚫 یوزرنیم یا آیدی را بنویسید:\n<code>/ban @user یا آیدی</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
         )
+        return
+
     elif data == "do_unban":
         await query.edit_message_text(
-            "✅ بنویس:\n<code>/unban @user یا آیدی</code>",
+            "✅ یوزرنیم یا آیدی را بنویسید:\n<code>/unban @user یا آیدی</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="panel_users")]])
         )
+        return
+
     elif data == "do_channels":
         await list_channels(update, context)
+        return
 
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
