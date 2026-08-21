@@ -131,6 +131,15 @@ async def init_db():
                 created_at REAL
             )
         """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS download_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_key TEXT,
+                user_id INTEGER,
+                downloaded_at REAL
+            )
+        """)
         await db.commit()
 
 
@@ -581,6 +590,12 @@ async def send_file_to_user(update, context, file_key, user):
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
             await db.execute("UPDATE users SET download_count = download_count + 1 WHERE user_id = ?", (user.id,))
+            
+            # ثبت لاگ دانلود
+            await db.execute(
+                "INSERT INTO download_logs (file_key, user_id, downloaded_at) VALUES (?, ?, ?)",
+                (file_key, user.id, time.time())
+            )
             await db.commit()
 # ===== سیستم امتیاز =====
         # ۱ امتیاز برای دانلود
@@ -2001,36 +2016,63 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def daily_stats(context: ContextTypes.DEFAULT_TYPE):
+    now = time.time()
+    # شروع امروز (ساعت ۰۰:۰۰ به وقت سرور)
+    today_start = now - (now % 86400)
+
     async with aiosqlite.connect(DB_PATH) as db:
+        # فایل‌های پرطرفدار
         async with db.execute(
             "SELECT key, caption, category, downloads FROM files WHERE is_active = 1 ORDER BY downloads DESC LIMIT 5"
         ) as c:
             top_files = await c.fetchall()
+
+        # کاربران فعال
         async with db.execute(
             "SELECT name, username, download_count FROM users ORDER BY download_count DESC LIMIT 5"
         ) as c:
             top_users = await c.fetchall()
+
+        # آمار کلی
         async with db.execute("SELECT COUNT(*) FROM users") as c:
             total_users = (await c.fetchone())[0]
+
         async with db.execute("SELECT SUM(downloads) FROM files") as c:
             total_downloads = (await c.fetchone())[0] or 0
+
         async with db.execute("SELECT COUNT(*) FROM files WHERE is_active = 1") as c:
             active_files = (await c.fetchone())[0]
 
-    text = "🌙 آمار شبانه ربات\n\n"
-    text += f"📁 فایل‌های فعال: {active_files}\n"
-    text += f"👥 کل کاربران: {total_users}\n"
-    text += f"📥 کل دانلودها: {total_downloads}\n\n"
-    text += "🏆 بیشترین دانلودها:\n"
+        # دانلودهای امروز
+        async with db.execute(
+            "SELECT COUNT(*) FROM download_logs WHERE downloaded_at >= ?", (today_start,)
+        ) as c:
+            today_downloads = (await c.fetchone())[0] or 0
+
+        # کاربران جدید امروز
+        async with db.execute(
+            "SELECT COUNT(*) FROM users WHERE first_seen >= ?", (today_start,)
+        ) as c:
+            new_users_today = (await c.fetchone())[0] or 0
+
+    text = "🌙 <b>آمار شبانه ربات</b>\n\n"
+    text += f"📁 فایل‌های فعال: <b>{active_files}</b>\n"
+    text += f"👥 کل کاربران: <b>{total_users}</b>\n"
+    text += f"📥 کل دانلودها: <b>{total_downloads}</b>\n"
+    text += f"📅 دانلود امروز: <b>{today_downloads}</b>\n"
+    text += f"🆕 کاربر جدید امروز: <b>{new_users_today}</b>\n\n"
+
+    text += "🏆 <b>بیشترین دانلودها:</b>\n"
     for i, (key, caption, cat, dl) in enumerate(top_files, 1):
         text += f"{i}. {caption or key} ({cat}) → {dl}\n"
-    text += "\n🔥 فعال‌ترین کاربران:\n"
+
+    text += "\n🔥 <b>فعال‌ترین کاربران:</b>\n"
     for i, (name, username, count) in enumerate(top_users, 1):
         uname = f"@{username}" if username else ""
         text += f"{i}. {name} {uname} → {count}\n"
 
     try:
-        await context.bot.send_message(chat_id=OWNER_ID, text=text)
+        await context.bot.send_message(chat_id=OWNER_ID, text=text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"خطا در آمار شبانه: {e}")
 
