@@ -247,6 +247,15 @@ async def is_banned(user_id: int) -> bool:
             return bool(row and row[0] == 1)
 
 
+async def delete_user_message(update: Update):
+    """پیام کاربر عادی را پاک می‌کند"""
+    try:
+        if update.message:
+            await update.message.delete()
+    except:
+        pass
+
+
 async def resolve_identifier(identifier: str) -> Optional[int]:
     identifier = identifier.strip().lstrip("@")
     try:
@@ -522,6 +531,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"یا یه تشکر ساده یا یه خسته نباشیدی، خدا قوتی، چیزی بهش بگی. خوشحال میشیم اگه باهامون ارتباط بگیری."
     )
 
+    # پاک کردن پیام کاربر (اگر ادمین نباشد)
+    if not await is_admin(user.id):
+        await delete_user_message(update)
     await update.message.reply_text(text)
 
 
@@ -685,18 +697,25 @@ async def send_file_to_user(update, context, file_key, user):
                 except:
                     pass
         # ========================
+# ثبت امتیاز و لاگ (اگر قبلاً نوشته شده نگه دار)
+        # ...
 
         warning = await update.message.reply_text(
-            f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\nبه Saved Messages فوروارد کنید."
+            f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
+            f"حتماً به Saved Messages فوروارد کنید تا از دست ندهید."
         )
 
         async def delete_later():
             await asyncio.sleep(DELETE_AFTER)
             try:
                 await sent.delete()
+            except:
+                pass
+            try:
                 await warning.delete()
             except:
                 pass
+
         asyncio.create_task(delete_later())
     except Exception as e:
         logger.error(f"خطا در ارسال فایل: {e}")
@@ -2215,9 +2234,13 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("مثال: /suggest پیشنهاد من")
         return
+
     await update.message.reply_text("✅ پیشنهاد ارسال شد.")
     await notify_owner(context, update.effective_user, f"پیشنهاد:\n{' '.join(context.args)}")
 
+    if not await is_admin(update.effective_user.id):
+        await delete_user_message(update)
+        
 
 async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -2225,6 +2248,7 @@ async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎")
     await notify_owner(context, user, "پیام غیرمجاز")
+    await delete_user_message(update)
 
 
 async def cleanup_job(context: ContextTypes.DEFAULT_TYPE):
@@ -2348,15 +2372,19 @@ def main():
         app.job_queue.run_repeating(cleanup_job, interval=600, first=30)
         app.job_queue.run_daily(daily_stats, time=dt_time(hour=21, minute=0))
 
+
     async def post_init(application: Application):
         await init_db()
         logger.info("دیتابیس آماده شد")
 
-    app.post_init = post_init
-
-    print("ربات روشن شد...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
+        # تنظیم منوی ربات
+        from telegram import BotCommand
+        commands = [
+            BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
+            BotCommand("suggest", "ارسال پیشنهاد به مالک"),
+            BotCommand("help", "راهنما"),
+        ]
+        await application.bot.set_my_commands(commands)
 
 if __name__ == "__main__":
     main()
