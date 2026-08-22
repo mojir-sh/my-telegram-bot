@@ -474,7 +474,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # پیام صبر کردن
         wait_msg = await update.message.reply_text(
-            "⏳ لطفاً ۱۰ ثانیه صبر کنید تا فایل آماده شود..."
+            "⏳ فایل درحال ارسال است، ممکن است چند ثانیه طول بکشد. در این مدت لطفا به کانال @comic_goddess سر بزنید و از آخرین محتوای ما با خبر شوید...."
         )
 
         async def show_download_button():
