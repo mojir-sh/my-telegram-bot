@@ -702,7 +702,7 @@ async def receive_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_file_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not await is_admin(user.id):
-        await update.message.reply_text("اگر یه بار دیگه این کارو بکنی، اسمت رو می‌دم صاحبم بیاد بالا سرت 😎")
+        await update.message.reply_text("اینطوری کار نمیکنه، باید از دستور /suggest استفاده بکنی و اول پیامت اینو بنویسی تا من بتونم پیامت رو دریافت بکنم.")
         await notify_owner(context, user, "تلاش برای آپلود غیرمجاز")
         return ConversationHandler.END
 
