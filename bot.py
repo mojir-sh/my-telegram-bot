@@ -537,7 +537,7 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ هنوز عضو نشدی.")
         return
 
-    await query.edit_message_text("⏳ لطفاً ۱۰ ثانیه صبر کنید تا فایل آماده شود...")
+    await query.edit_message_text("⏳ فایل درحال ارسال است، ممکن است چند ثانیه طول بکشد. در این مدت لطفا به کانال @comic_goddess سر بزنید و از آخرین محتوای ما با خبر شوید....")
 
     async def show_download_button():
         await asyncio.sleep(10)
