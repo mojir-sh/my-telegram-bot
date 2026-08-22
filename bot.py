@@ -472,7 +472,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        await send_file_to_user(update, context, args[0], user)
+        # پیام صبر کردن
+        wait_msg = await update.message.reply_text(
+            "⏳ لطفاً ۱۰ ثانیه صبر کنید تا فایل آماده شود..."
+        )
+
+        async def show_download_button():
+            await asyncio.sleep(10)
+            keyboard = [[InlineKeyboardButton("📥 دریافت فایل", callback_data=f"getfile:{args[0]}")]]
+            try:
+                await wait_msg.edit_text(
+                    "✅ فایل آماده است!\nروی دکمه زیر بزنید:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except:
+                pass
+
+        asyncio.create_task(show_download_button())
         return
 
     # حالت عادی /start → نمایش لینک دعوت و وضعیت
@@ -521,7 +537,55 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ هنوز عضو نشدی.")
         return
 
-    await query.edit_message_text("✅ عضویت تأیید شد. در حال ارسال فایل...")
+    await query.edit_message_text("⏳ لطفاً ۱۰ ثانیه صبر کنید تا فایل آماده شود...")
+
+    async def show_download_button():
+        await asyncio.sleep(10)
+        keyboard = [[InlineKeyboardButton("📥 دریافت فایل", callback_data=f"getfile:{file_key}")]]
+        try:
+            await query.edit_message_text(
+                "✅ فایل آماده است!\nروی دکمه زیر بزنید:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except:
+            pass
+
+    asyncio.create_task(show_download_button())
+    return
+
+    class FakeMsg:
+        async def reply_document(self, **k): return await context.bot.send_document(chat_id=user.id, **k)
+        async def reply_video(self, **k): return await context.bot.send_video(chat_id=user.id, **k)
+        async def reply_audio(self, **k): return await context.bot.send_audio(chat_id=user.id, **k)
+        async def reply_photo(self, **k): return await context.bot.send_photo(chat_id=user.id, **k)
+        async def reply_voice(self, **k): return await context.bot.send_voice(chat_id=user.id, **k)
+        async def reply_animation(self, **k): return await context.bot.send_animation(chat_id=user.id, **k)
+        async def reply_text(self, **k): return await context.bot.send_message(chat_id=user.id, **k)
+
+    class FakeUpdate:
+        effective_user = user
+        message = FakeMsg()
+
+    await send_file_to_user(FakeUpdate(), context, file_key, user)
+
+
+async def prepare_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فایل درحال ارسال است، ممکن است چند ثانیه طول بکشد. در این مدت لطفا به کانال @comic_goddess سر بزنید و از آخرین محتوای ما با خبر شوید."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.data.startswith("getfile:"):
+        return
+
+    file_key = query.data.split(":", 1)[1]
+    user = query.from_user
+
+    # دوباره چک عضویت (برای اطمینان)
+    if not await is_member(user.id, context):
+        await query.edit_message_text("❌ هنوز عضو کانال‌ها نیستید.")
+        return
+
+    await query.edit_message_text("✅ در حال ارسال فایل...")
 
     class FakeMsg:
         async def reply_document(self, **k): return await context.bot.send_document(chat_id=user.id, **k)
@@ -2243,6 +2307,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join:"))
+    app.add_handler(CallbackQueryHandler(prepare_file_callback, pattern="^getfile:"))
     app.add_handler(upload_conv)
     app.add_handler(CommandHandler("edit", edit_file_start))
     app.add_handler(edit_conv)
