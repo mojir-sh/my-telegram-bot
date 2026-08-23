@@ -2386,5 +2386,11 @@ def main():
         ]
         await application.bot.set_my_commands(commands)
 
+    app.post_init = post_init
+
+    print("ربات روشن شد...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
 if __name__ == "__main__":
     main()
