@@ -2382,7 +2382,6 @@ def main():
         commands = [
             BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
             BotCommand("suggest", "ارسال پیشنهاد به مالک"),
-            BotCommand("help", "راهنما"),
         ]
         await application.bot.set_my_commands(commands)
 
