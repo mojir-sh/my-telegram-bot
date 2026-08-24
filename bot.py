@@ -559,26 +559,10 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "✅ فایل آماده است!\nروی دکمه زیر بزنید:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        except:
+        except Exception:
             pass
 
     asyncio.create_task(show_download_button())
-    return
-
-    class FakeMsg:
-        async def reply_document(self, **k): return await context.bot.send_document(chat_id=user.id, **k)
-        async def reply_video(self, **k): return await context.bot.send_video(chat_id=user.id, **k)
-        async def reply_audio(self, **k): return await context.bot.send_audio(chat_id=user.id, **k)
-        async def reply_photo(self, **k): return await context.bot.send_photo(chat_id=user.id, **k)
-        async def reply_voice(self, **k): return await context.bot.send_voice(chat_id=user.id, **k)
-        async def reply_animation(self, **k): return await context.bot.send_animation(chat_id=user.id, **k)
-        async def reply_text(self, **k): return await context.bot.send_message(chat_id=user.id, **k)
-
-    class FakeUpdate:
-        effective_user = user
-        message = FakeMsg()
-
-    await send_file_to_user(FakeUpdate(), context, file_key, user)
 
 
 async def prepare_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -663,19 +647,18 @@ async def send_file_to_user(update, context, file_key, user):
         keyboard = await get_file_keyboard(file_key)
         sent = await func(**{param_name: file_id, "caption": caption, "reply_markup": keyboard})
 
+        # ثبت دانلود + لاگ
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE files SET downloads = downloads + 1 WHERE key = ?", (file_key,))
             await db.execute("UPDATE users SET download_count = download_count + 1 WHERE user_id = ?", (user.id,))
-            
-            # ثبت لاگ دانلود
             await db.execute(
                 "INSERT INTO download_logs (file_key, user_id, downloaded_at) VALUES (?, ?, ?)",
                 (file_key, user.id, time.time())
             )
             await db.commit()
-# ===== سیستم امتیاز =====
+
         # ۱ امتیاز برای دانلود
-            await add_points(user.id, 1, context)
+        await add_points(user.id, 1, context)
 
         # بررسی پاداش دعوت (فقط برای اولین دانلود)
         async with aiosqlite.connect(DB_PATH) as db:
@@ -692,31 +675,50 @@ async def send_file_to_user(update, context, file_key, user):
                 try:
                     await context.bot.send_message(
                         chat_id=referrer_id,
-                        text=f"🎉 یکی از دعوت‌شده‌های تو اولین فایلش رو دانلود کرد!\n+۱۰۰ امتیاز گرفتی."
+                        text="🎉 یکی از دعوت‌شده‌های تو اولین فایلش رو دانلود کرد!\n+۱۰۰ امتیاز گرفتی."
                     )
-                except:
+                except Exception:
                     pass
-        # ========================
-# ثبت امتیاز و لاگ (اگر قبلاً نوشته شده نگه دار)
-        # ...
 
+        # پیام هشدار حذف
         warning = await update.message.reply_text(
             f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
             f"حتماً به Saved Messages فوروارد کنید تا از دست ندهید."
         )
 
-        async def delete_later():
-            await asyncio.sleep(DELETE_AFTER)
-            try:
-                await sent.delete()
-            except:
-                pass
-            try:
-                await warning.delete()
-            except:
-                pass
+        # حذف خودکار بعد از DELETE_AFTER ثانیه (با job_queue برای اطمینان بیشتر)
+        chat_id = user.id
+        msg_ids = [sent.message_id, warning.message_id]
 
-        asyncio.create_task(delete_later())
+        async def _delete_messages(ctx: ContextTypes.DEFAULT_TYPE):
+            job = ctx.job
+            data = job.data or {}
+            c_id = data.get("chat_id")
+            ids = data.get("msg_ids") or []
+            for mid in ids:
+                try:
+                    await ctx.bot.delete_message(chat_id=c_id, message_id=mid)
+                except Exception as e:
+                    logger.warning(f"نتوانستم پیام {mid} را پاک کنم: {e}")
+
+        if context.job_queue:
+            context.job_queue.run_once(
+                _delete_messages,
+                when=DELETE_AFTER,
+                data={"chat_id": chat_id, "msg_ids": msg_ids},
+                name=f"autodel_{file_key}_{user.id}_{int(time.time())}"
+            )
+        else:
+            # fallback اگر job_queue در دسترس نباشد
+            async def delete_later():
+                await asyncio.sleep(DELETE_AFTER)
+                for mid in msg_ids:
+                    try:
+                        await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+                    except Exception:
+                        pass
+            asyncio.create_task(delete_later())
+
     except Exception as e:
         logger.error(f"خطا در ارسال فایل: {e}")
         await update.message.reply_text("❌ خطا در ارسال فایل.")
