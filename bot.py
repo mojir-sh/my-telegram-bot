@@ -424,6 +424,21 @@ async def get_file_keyboard(file_key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+async def delete_messages_job(context: ContextTypes.DEFAULT_TYPE):
+    """حذف پیام‌های فایل و هشدار بعد از زمان مشخص"""
+    job = context.job
+    data = job.data or {}
+    chat_id = data.get("chat_id")
+    msg_ids = data.get("msg_ids") or []
+
+    for mid in msg_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+            logger.info(f"پیام {mid} با موفقیت پاک شد")
+        except Exception as e:
+            logger.warning(f"نتوانستم پیام {mid} را پاک کنم: {e}")
+
+
 # ==================== start و ارسال فایل ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -686,20 +701,31 @@ async def send_file_to_user(update, context, file_key, user):
             f"حتماً به Saved Messages فوروارد کنید تا از دست ندهید."
         )
 
-        # حذف خودکار بعد از DELETE_AFTER ثانیه (با job_queue برای اطمینان بیشتر)
         chat_id = user.id
         msg_ids = [sent.message_id, warning.message_id]
 
-        async def _delete_messages(ctx: ContextTypes.DEFAULT_TYPE):
-            job = ctx.job
-            data = job.data or {}
-            c_id = data.get("chat_id")
-            ids = data.get("msg_ids") or []
-            for mid in ids:
-                try:
-                    await ctx.bot.delete_message(chat_id=c_id, message_id=mid)
-                except Exception as e:
-                    logger.warning(f"نتوانستم پیام {mid} را پاک کنم: {e}")
+        # روش ۱: job_queue (اگر موجود باشد)
+        if context.job_queue:
+            context.job_queue.run_once(
+                delete_messages_job,
+                when=DELETE_AFTER,
+                data={"chat_id": chat_id, "msg_ids": msg_ids},
+                name=f"autodel_{file_key}_{user.id}_{int(time.time())}"
+            )
+            logger.info(f"حذف خودکار با job_queue برای فایل {file_key} تنظیم شد")
+        else:
+            # روش ۲: fallback با asyncio (همیشه کار می‌کند)
+            async def delete_later():
+                await asyncio.sleep(DELETE_AFTER)
+                for mid in msg_ids:
+                    try:
+                        await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+                        logger.info(f"پیام {mid} با create_task پاک شد")
+                    except Exception as e:
+                        logger.warning(f"خطا در حذف پیام {mid}: {e}")
+
+            asyncio.create_task(delete_later())
+            logger.info(f"حذف خودکار با create_task برای فایل {file_key} تنظیم شد (job_queue موجود نبود)")
 
         if context.job_queue:
             context.job_queue.run_once(
