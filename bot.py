@@ -682,11 +682,9 @@ async def send_file_to_user(update, context, file_key, user):
             ) as c:
                 row = await c.fetchone()
 
-            if row and row[0] and row[1] == 1:  # اولین دانلود و معرف داشته
+            if row and row[0] and row[1] == 1:
                 referrer_id = row[0]
                 await add_points(referrer_id, 100, context)
-
-                # اطلاع به دعوت‌کننده
                 try:
                     await context.bot.send_message(
                         chat_id=referrer_id,
@@ -695,59 +693,45 @@ async def send_file_to_user(update, context, file_key, user):
                 except Exception:
                     pass
 
-        # پیام هشدار حذف
-        warning = await update.message.reply_text(
-            f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
-            f"حتماً به Saved Messages فوروارد کنید تا از دست ندهید."
-        )
+        # ===== پیام هشدار و حذف خودکار =====
+        # مستقیم با bot می‌فرستیم تا به FakeMsg وابسته نباشه
+        try:
+            warning = await context.bot.send_message(
+                chat_id=user.id,
+                text=(
+                    f"⚠️ این فایل تا {DELETE_AFTER} ثانیه دیگر پاک می‌شود.\n"
+                    f"حتماً به Saved Messages فوروارد کنید تا از دست ندهید."
+                )
+            )
+        except Exception as e:
+            logger.error(f"خطا در ارسال پیام هشدار: {e}")
+            warning = None
 
         chat_id = user.id
-        msg_ids = [sent.message_id, warning.message_id]
+        msg_ids = [sent.message_id]
+        if warning:
+            msg_ids.append(warning.message_id)
 
-        # روش ۱: job_queue (اگر موجود باشد)
-        if context.job_queue:
-            context.job_queue.run_once(
-                delete_messages_job,
-                when=DELETE_AFTER,
-                data={"chat_id": chat_id, "msg_ids": msg_ids},
-                name=f"autodel_{file_key}_{user.id}_{int(time.time())}"
-            )
-            logger.info(f"حذف خودکار با job_queue برای فایل {file_key} تنظیم شد")
-        else:
-            # روش ۲: fallback با asyncio (همیشه کار می‌کند)
-            async def delete_later():
-                await asyncio.sleep(DELETE_AFTER)
-                for mid in msg_ids:
-                    try:
-                        await context.bot.delete_message(chat_id=chat_id, message_id=mid)
-                        logger.info(f"پیام {mid} با create_task پاک شد")
-                    except Exception as e:
-                        logger.warning(f"خطا در حذف پیام {mid}: {e}")
+        # حذف بعد از ۹۰ ثانیه
+        async def delete_later():
+            await asyncio.sleep(DELETE_AFTER)
+            for mid in msg_ids:
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+                    logger.info(f"پیام {mid} پاک شد")
+                except Exception as e:
+                    logger.warning(f"نتوانستم پیام {mid} را پاک کنم: {e}")
 
-            asyncio.create_task(delete_later())
-            logger.info(f"حذف خودکار با create_task برای فایل {file_key} تنظیم شد (job_queue موجود نبود)")
-
-        if context.job_queue:
-            context.job_queue.run_once(
-                _delete_messages,
-                when=DELETE_AFTER,
-                data={"chat_id": chat_id, "msg_ids": msg_ids},
-                name=f"autodel_{file_key}_{user.id}_{int(time.time())}"
-            )
-        else:
-            # fallback اگر job_queue در دسترس نباشد
-            async def delete_later():
-                await asyncio.sleep(DELETE_AFTER)
-                for mid in msg_ids:
-                    try:
-                        await context.bot.delete_message(chat_id=chat_id, message_id=mid)
-                    except Exception:
-                        pass
-            asyncio.create_task(delete_later())
+        asyncio.create_task(delete_later())
+        logger.info(f"حذف خودکار برای فایل {file_key} تنظیم شد")
 
     except Exception as e:
-        logger.error(f"خطا در ارسال فایل: {e}")
-        await update.message.reply_text("❌ خطا در ارسال فایل.")
+        logger.error(f"خطا در ارسال فایل: {e}", exc_info=True)
+        try:
+            await context.bot.send_message(chat_id=user.id, text="❌ خطا در ارسال فایل.")
+        except Exception:
+            pass
+
 
 async def like_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
