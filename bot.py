@@ -143,6 +143,48 @@ async def init_db():
         await db.commit()
 
 
+import os
+import psycopg
+
+SITE_DATABASE_URL = os.getenv("DATABASE_URL")  # همان PostgreSQL سایت
+
+async def sync_user_to_site(telegram_id: int, points: int, level: int,
+                            username: str | None = None,
+                            first_name: str | None = None):
+    """همگام‌سازی امتیاز و سطح کاربر با سایت"""
+    if not SITE_DATABASE_URL:
+        return
+
+    try:
+        with psycopg.connect(SITE_DATABASE_URL, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO site_users (
+                        telegram_id, username, first_name, points, level, last_login
+                    )
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (telegram_id)
+                    DO UPDATE SET
+                        username = COALESCE(EXCLUDED.username, site_users.username),
+                        first_name = COALESCE(EXCLUDED.first_name, site_users.first_name),
+                        points = EXCLUDED.points,
+                        level = EXCLUDED.level,
+                        last_login = NOW()
+                    """,
+                    (
+                        int(telegram_id),
+                        username,
+                        first_name,
+                        int(points or 0),
+                        int(level or 1),
+                    ),
+                )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"sync_user_to_site failed: {e}")
+
+
 async def get_setting(key: str, default=None):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT value FROM settings WHERE key = ?", (key,)) as cursor:
@@ -378,6 +420,15 @@ async def add_points(user_id: int, amount: int, context: ContextTypes.DEFAULT_TY
         # آپدیت امتیاز
         await db.execute("UPDATE users SET points = ? WHERE user_id = ?", (new_points, user_id))
         await db.commit()
+
+        #هماهنگی با سایت
+        await sync_user_to_site(
+    telegram_id=user_id,
+    points=new_points,
+    level=new_level,
+    username=username,
+    first_name=first_name,
+        )
 
         # چک کردن سطح جدید
         info = get_level_info(new_points)
