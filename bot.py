@@ -406,8 +406,10 @@ def get_level_info(points: int):
 async def add_points(user_id: int, amount: int, context: ContextTypes.DEFAULT_TYPE = None):
     """اضافه کردن امتیاز و بررسی ارتقا سطح"""
     async with aiosqlite.connect(DB_PATH) as db:
-        # گرفتن امتیاز فعلی
-        async with db.execute("SELECT points, level FROM users WHERE user_id = ?", (user_id,)) as c:
+        async with db.execute(
+            "SELECT points, level, username, name FROM users WHERE user_id = ?",
+            (user_id,)
+        ) as c:
             row = await c.fetchone()
 
         if not row:
@@ -415,30 +417,26 @@ async def add_points(user_id: int, amount: int, context: ContextTypes.DEFAULT_TY
 
         old_points = row[0] or 0
         old_level = row[1] or 1
-        new_points = min(old_points + amount, 2000)  # سقف ۲۰۰۰
+        username = row[2]
+        first_name = row[3]
+        new_points = min(old_points + amount, 2000)
 
-        # آپدیت امتیاز
-        await db.execute("UPDATE users SET points = ? WHERE user_id = ?", (new_points, user_id))
+        await db.execute(
+            "UPDATE users SET points = ? WHERE user_id = ?",
+            (new_points, user_id)
+        )
         await db.commit()
 
-        #هماهنگی با سایت
-        await sync_user_to_site(
-    telegram_id=user_id,
-    points=new_points,
-    level=new_level,
-    username=username,
-    first_name=first_name,
-        )
-
-        # چک کردن سطح جدید
         info = get_level_info(new_points)
         new_level = info["level"]
 
         if new_level > old_level:
-            await db.execute("UPDATE users SET level = ? WHERE user_id = ?", (new_level, user_id))
+            await db.execute(
+                "UPDATE users SET level = ? WHERE user_id = ?",
+                (new_level, user_id)
+            )
             await db.commit()
 
-            # ارسال پیام تبریک
             if context:
                 try:
                     text = (
@@ -450,10 +448,18 @@ async def add_points(user_id: int, amount: int, context: ContextTypes.DEFAULT_TY
                         text += f"\nتا سطح بعدی ({info['next_name']}) : {info['next_points'] - new_points} امتیاز مانده"
                     else:
                         text += "\n\n👑 تو به بالاترین سطح رسیدی!"
-
                     await context.bot.send_message(chat_id=user_id, text=text)
-                except:
+                except Exception:
                     pass
+
+    # همگام‌سازی با سایت (بعد از بستن اتصال SQLite)
+    await sync_user_to_site(
+        telegram_id=user_id,
+        points=new_points,
+        level=new_level,
+        username=username,
+        first_name=first_name,
+                    )
 
 
 async def get_file_keyboard(file_key: str) -> InlineKeyboardMarkup:
@@ -574,6 +580,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     points = row[0] if row and row[0] is not None else 0
     info = get_level_info(points)
 
+    await sync_user_to_site(
+        telegram_id=user.id,
+        points=points,
+        level=info["level"],
+        username=user.username,
+        first_name=user.first_name,
+    )
+
     bot_username = (await context.bot.get_me()).username
     invite_link = f"https://t.me/{bot_username}?start=ref_{user.id}"
 
@@ -582,6 +596,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎖 سطح فعلی: {info['name']}\n"
         f"⭐ امتیاز: {points}\n"
     )
+    # ... بقیه همان کد خودت
 
     if info["next_points"]:
         remaining = info["next_points"] - points
