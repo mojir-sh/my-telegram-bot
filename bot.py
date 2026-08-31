@@ -2338,6 +2338,73 @@ async def cleanup_job(context: ContextTypes.DEFAULT_TYPE):
             (max_downloads IS NOT NULL AND downloads >= max_downloads)
         """, (now,))
         await db.commit()
+        
+
+from telegram.ext import PreCheckoutQueryHandler
+
+async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.pre_checkout_query.answer(ok=True)
+
+async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    payment = update.message.successful_payment
+    payload = payment.invoice_payload
+    user = update.effective_user
+    stars = payment.total_amount
+
+    import os
+    import psycopg
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        logger.error("DATABASE_URL نیست")
+        return
+
+    try:
+        async with await psycopg.AsyncConnection.connect(db_url) as conn:
+            # خرید را paid کن
+            await conn.execute(
+                """
+                UPDATE purchases
+                SET status='paid', paid_at=NOW(), stars=%s
+                WHERE payload=%s AND telegram_id=%s
+                """,
+                (stars, payload, user.id),
+            )
+
+            # اگر پکیج است → تیکت بده
+            # payload: pkg:{id}:{tg}:{ts}
+            parts = (payload or "").split(":")
+            if len(parts) >= 2 and parts[0] == "pkg":
+                pkg_id = int(parts[1])
+                row = await conn.execute(
+                    "SELECT tickets FROM ticket_packages WHERE id=%s",
+                    (pkg_id,),
+                )
+                pkg = await row.fetchone()
+                if pkg:
+                    add = int(pkg[0])
+                    await conn.execute(
+                        """
+                        UPDATE site_users
+                        SET tickets = COALESCE(tickets,0) + %s
+                        WHERE telegram_id=%s
+                        """,
+                        (add, user.id),
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO ticket_ledger
+                          (telegram_id, delta, reason, ref_type, ref_id)
+                        VALUES (%s, %s, %s, 'package', %s)
+                        """,
+                        (user.id, add, "خرید پکیج", str(pkg_id)),
+                    )
+            await conn.commit()
+
+        await update.message.reply_text("✅ پرداخت ثبت شد. تیکت‌ها به حسابت اضافه شد.")
+    except Exception as e:
+        logger.error(f"payment error: {e}")
+        await update.message.reply_text("پرداخت آمد ولی ثبت نهایی مشکل داشت.")
 
 
 def main():
@@ -2442,6 +2509,9 @@ def main():
     app.add_handler(CallbackQueryHandler(like_callback, pattern="^like:"))
     app.add_handler(CallbackQueryHandler(comment_callback, pattern="^comment:"))
     app.add_handler(MessageHandler(filters.TEXT, receive_comment), group=1)
+
+    app.add_handler(PreCheckoutQueryHandler(pre_checkout))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
     # تشخیص لفت دادن از کانال
     app.add_handler(ChatMemberHandler(on_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
