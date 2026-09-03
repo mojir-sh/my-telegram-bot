@@ -615,7 +615,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # پاک کردن پیام کاربر (اگر ادمین نباشد)
     if not await is_admin(user.id):
         await delete_user_message(update)
-    await update.message.reply_text(text)
+
+    site_url = os.getenv("SITE_URL", "https://bot-s-site-production.up.railway.app").rstrip("/")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 ورود به مینی‌اپ", url=f"{site_url}/")],
+        [InlineKeyboardButton("🎟 خرید تیکت", url=f"{site_url}/tickets")],
+    ])
+    await update.message.reply_text(text, reply_markup=keyboard)
 
 
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2345,63 +2351,77 @@ from telegram.ext import PreCheckoutQueryHandler
 async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.pre_checkout_query.answer(ok=True)
 
+
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payment = update.message.successful_payment
-    payload = payment.invoice_payload
+    payload = payment.invoice_payload or ""
     user = update.effective_user
     stars = payment.total_amount
-
-    import os
-    import psycopg
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         logger.error("DATABASE_URL نیست")
+        await update.message.reply_text("پرداخت آمد ولی اتصال دیتابیس سایت نیست.")
         return
 
     try:
-        async with await psycopg.AsyncConnection.connect(db_url) as conn:
-            # خرید را paid کن
-            await conn.execute(
-                """
-                UPDATE purchases
-                SET status='paid', paid_at=NOW(), stars=%s
-                WHERE payload=%s AND telegram_id=%s
-                """,
-                (stars, payload, user.id),
+        def apply_payment():
+            with psycopg.connect(db_url, connect_timeout=8) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE purchases
+                        SET status='paid', paid_at=NOW(), stars=%s
+                        WHERE payload=%s AND telegram_id=%s
+                        """,
+                        (stars, payload, user.id),
+                    )
+
+                    parts = payload.split(":")
+                    added = 0
+                    if len(parts) >= 2 and parts[0] == "pkg":
+                        pkg_id = int(parts[1])
+                        cur.execute(
+                            "SELECT tickets FROM ticket_packages WHERE id=%s",
+                            (pkg_id,),
+                        )
+                        pkg = cur.fetchone()
+                        if pkg:
+                            added = int(pkg[0])
+                            cur.execute(
+                                """
+                                INSERT INTO site_users (telegram_id, tickets)
+                                VALUES (%s, 0)
+                                ON CONFLICT (telegram_id) DO NOTHING
+                                """,
+                                (user.id,),
+                            )
+                            cur.execute(
+                                """
+                                UPDATE site_users
+                                SET tickets = COALESCE(tickets, 0) + %s
+                                WHERE telegram_id=%s
+                                """,
+                                (added, user.id),
+                            )
+                            cur.execute(
+                                """
+                                INSERT INTO ticket_ledger
+                                  (telegram_id, delta, reason, ref_type, ref_id)
+                                VALUES (%s, %s, %s, 'package', %s)
+                                """,
+                                (user.id, added, "خرید پکیج", str(pkg_id)),
+                            )
+                    conn.commit()
+                    return added
+
+        added = await asyncio.to_thread(apply_payment)
+        if added:
+            await update.message.reply_text(
+                f"✅ پرداخت موفق\n{added} تیکت به حسابت اضافه شد."
             )
-
-            # اگر پکیج است → تیکت بده
-            # payload: pkg:{id}:{tg}:{ts}
-            parts = (payload or "").split(":")
-            if len(parts) >= 2 and parts[0] == "pkg":
-                pkg_id = int(parts[1])
-                row = await conn.execute(
-                    "SELECT tickets FROM ticket_packages WHERE id=%s",
-                    (pkg_id,),
-                )
-                pkg = await row.fetchone()
-                if pkg:
-                    add = int(pkg[0])
-                    await conn.execute(
-                        """
-                        UPDATE site_users
-                        SET tickets = COALESCE(tickets,0) + %s
-                        WHERE telegram_id=%s
-                        """,
-                        (add, user.id),
-                    )
-                    await conn.execute(
-                        """
-                        INSERT INTO ticket_ledger
-                          (telegram_id, delta, reason, ref_type, ref_id)
-                        VALUES (%s, %s, %s, 'package', %s)
-                        """,
-                        (user.id, add, "خرید پکیج", str(pkg_id)),
-                    )
-            await conn.commit()
-
-        await update.message.reply_text("✅ پرداخت ثبت شد. تیکت‌ها به حسابت اضافه شد.")
+        else:
+            await update.message.reply_text("✅ پرداخت ثبت شد.")
     except Exception as e:
         logger.error(f"payment error: {e}")
         await update.message.reply_text("پرداخت آمد ولی ثبت نهایی مشکل داشت.")
