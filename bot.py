@@ -2427,13 +2427,41 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("پرداخت آمد ولی ثبت نهایی مشکل داشت.")
 
 
+async def post_init(application: Application):
+    await init_db()
+    logger.info("دیتابیس آماده شد")
+
+    from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
+
+    commands = [
+        BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
+        BotCommand("suggest", "ارسال پیشنهاد به مالک"),
+    ]
+    await application.bot.set_my_commands(commands)
+
+    site_url = os.getenv(
+        "SITE_URL",
+        "https://bot-s-site-production.up.railway.app"
+    ).rstrip("/")
+    try:
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="مینی‌اپ",
+                web_app=WebAppInfo(url=site_url + "/")
+            )
+        )
+        logger.info("منوی WebApp تنظیم شد")
+    except Exception as e:
+        logger.error(f"خطا در تنظیم منوی WebApp: {e}")
+
+
 def main():
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
         print("❌ متغیر محیطی TOKEN تنظیم نشده!")
         return
 
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
 
     # مکالمه آپلود
     upload_conv = ConversationHandler(
@@ -2539,36 +2567,6 @@ def main():
     if app.job_queue:
         app.job_queue.run_repeating(cleanup_job, interval=600, first=30)
         app.job_queue.run_daily(daily_stats, time=dt_time(hour=21, minute=0))
-
-
-async def post_init(application: Application):
-        await init_db()
-        logger.info("دیتابیس آماده شد")
-
-        from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
-
-        commands = [
-            BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
-            BotCommand("suggest", "ارسال پیشنهاد به مالک"),
-        ]
-        await application.bot.set_my_commands(commands)
-
-        site_url = os.getenv(
-            "SITE_URL",
-            "https://bot-s-site-production.up.railway.app"
-        ).rstrip("/")
-        try:
-            await application.bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp(
-                    text="مینی‌اپ",
-                    web_app=WebAppInfo(url=site_url + "/")
-                )
-            )
-            logger.info("منوی WebApp تنظیم شد")
-        except Exception as e:
-            logger.error(f"خطا در تنظیم منوی WebApp: {e}")
-
-    app.post_init = post_init
 
     print("ربات روشن شد...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
