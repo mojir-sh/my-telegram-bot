@@ -2542,17 +2542,29 @@ def main():
 
 
     async def post_init(application: Application):
-        await init_db()
-        logger.info("دیتابیس آماده شد")
+    await init_db()
+    logger.info("دیتابیس آماده شد")
 
-        # تنظیم منوی ربات
-        from telegram import BotCommand
-        commands = [
-            BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
-            BotCommand("suggest", "ارسال پیشنهاد به مالک"),
-        ]
-        await application.bot.set_my_commands(commands)
+    from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
 
+    commands = [
+        BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
+        BotCommand("suggest", "ارسال پیشنهاد به مالک"),
+    ]
+    await application.bot.set_my_commands(commands)
+
+    site_url = os.getenv("SITE_URL", "https://bot-s-site-production.up.railway.app").rstrip("/")
+    try:
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="مینی‌اپ",
+                web_app=WebAppInfo(url=site_url + "/")
+            )
+        )
+        logger.info("منوی WebApp تنظیم شد")
+    except Exception as e:
+        logger.error(f"خطا در تنظیم منوی WebApp: {e}")
+        
     app.post_init = post_init
 
     print("ربات روشن شد...")
