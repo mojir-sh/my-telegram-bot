@@ -2553,7 +2553,10 @@ async def post_init(application: Application):
         ]
         await application.bot.set_my_commands(commands)
 
-        site_url = os.getenv("SITE_URL", "https://bot-s-site-production.up.railway.app").rstrip("/")
+        site_url = os.getenv(
+            "SITE_URL",
+            "https://bot-s-site-production.up.railway.app"
+        ).rstrip("/")
         try:
             await application.bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
@@ -2564,7 +2567,7 @@ async def post_init(application: Application):
             logger.info("منوی WebApp تنظیم شد")
         except Exception as e:
             logger.error(f"خطا در تنظیم منوی WebApp: {e}")
-        
+
     app.post_init = post_init
 
     print("ربات روشن شد...")
