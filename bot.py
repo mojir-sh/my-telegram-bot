@@ -496,6 +496,31 @@ async def delete_messages_job(context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"نتوانستم پیام {mid} را پاک کنم: {e}")
 
 
+async def get_user_lang(user_id: int) -> str:
+    """زبان کاربر از Postgres سایت؛ پیش‌فرض fa"""
+    try:
+        import psycopg
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            return "fa"
+        with psycopg.connect(db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(lang, 'fa') FROM site_users WHERE telegram_id = %s",
+                    (int(user_id),),
+                )
+                row = cur.fetchone()
+                if row and row[0] in ("fa", "en"):
+                    return row[0]
+    except Exception as e:
+        logger.error(f"get_user_lang: {e}")
+    return "fa"
+
+
+def tr(lang: str, fa: str, en: str) -> str:
+    return en if lang == "en" else fa
+
+
 # ==================== start و ارسال فایل ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
