@@ -2456,7 +2456,7 @@ async def post_init(application: Application):
     await init_db()
     logger.info("دیتابیس آماده شد")
 
-    from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
+    from telegram import BotCommand, MenuButtonWebApp,
 
     commands = [
         BotCommand("start", "شروع ربات و دریافت لینک دعوت"),
@@ -2470,9 +2470,7 @@ async def post_init(application: Application):
     ).rstrip("/")
     try:
         await application.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="Site",
-                web_app=WebAppInfo(url=site_url + "/")
+            menu_button=MenuButtonCommands()
             )
         )
         logger.info("منوی WebApp تنظیم شد")
