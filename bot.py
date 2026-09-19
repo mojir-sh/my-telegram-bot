@@ -325,7 +325,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(app: Application):
     await init_db()
-    logger.info("db ready")
+    from telegram import MenuButtonCommands
+    try:
+        await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        logger.info("menu set to commands")
+    except Exception as e:
+        logger.error(f"menu error: {e}")
 
 
 def main():
