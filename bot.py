@@ -165,11 +165,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def owner_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
-
-    # اگر وسط برودکست هستیم، اینجا دخالت نکن
     if context.user_data.get("in_broadcast"):
         return
 
+    # یا همیشه برای OWNER file_id بده، یا فقط وقتی waiting_getid
+    # نسخه ساده: همیشه برای OWNER:
     msg = update.message
     fid = None
     ftype = "document"
@@ -190,10 +190,8 @@ async def owner_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await msg.reply_text(
-        f"type: `{ftype}`\nfile_id:\n`{fid}`\n\n"
-        f"داخل FILES بگذار، مثال:\n"
-        f'`"mykey": {{"file_id": "{fid}", "type": "{ftype}", "caption": "متن دلخواه"}}`',
-        parse_mode="Markdown",
+        f"type: {ftype}\nfile_id:\n{fid}\n\n"
+        f"داخل FILES بگذار با caption دلخواه."
     )
 
 
@@ -317,6 +315,15 @@ async def broadcast_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def getid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    await update.message.reply_text(
+        "حالا فایل / عکس / ویدیو / گیف را بفرست تا file_id بدم.\nلغو: /cancel"
+    )
+    context.user_data["waiting_getid"] = True
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("لغو شد.")
@@ -370,6 +377,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(broadcast_conv)
+
+    app.add_handler(CommandHandler("getid", getid_cmd))
 
     # OWNER فایل بفرستد → file_id (اولویت بعد از broadcast_conv)
     app.add_handler(
